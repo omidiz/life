@@ -19,7 +19,7 @@
   const COLORS = ['sand', 'mist', 'clay', 'sage', 'lilac', 'stone', 'grey', 'white'];
   const colorFor = i => COLORS[i % (COLORS.length - 1)];
   const defaults = () => ({
-    boards: DEFAULT_BOARDS.map((name, i) => ({ id: boardIdFor(name), name, order: i, color: 'grey', updated: 0 })),
+    boards: DEFAULT_BOARDS.map((name, i) => ({ id: boardIdFor(name), name, order: i, color: colorFor(i), updated: 0 })),
     tasks: [],   // items: {id, boardId, type: task|note|heading|bullet, title, due, done, doneOn, pos, created, updated, deleted?}
     theme: null, // per device, never synced
   });
@@ -45,8 +45,11 @@
 
   let S;
   try { S = migrate(JSON.parse(localStorage.getItem(KEY))); } catch { S = defaults(); }
-  // One-time switch: every board becomes gray (a colour can still be picked per board).
-  if (!S.grayBoards) { S.boards.forEach(b => { if (b.color !== 'grey') { b.color = 'grey'; b.updated = now(); } }); S.grayBoards = true; localStorage.setItem(KEY, JSON.stringify(S)); }
+  // Undo the short-lived 'all boards gray' version: give gray boards their colours back once.
+  if (S.grayBoards && !S.colorsBack) {
+    live(S.boards).sort((a, b) => a.order - b.order).forEach((b, i) => { if (b.color === 'grey') { b.color = colorFor(i); b.updated = now(); } });
+    S.colorsBack = true; localStorage.setItem(KEY, JSON.stringify(S));
+  }
   const store = () => localStorage.setItem(KEY, JSON.stringify(S));
   const save = () => { store(); scheduleSync(); };
 
@@ -263,7 +266,8 @@
       const t = taskOf(b); t.due = null; t.updated = now(); dueEditing = null;
     } else if (act === 'newboard') {
       const list = boards();
-      const color = 'grey';
+      const used = new Set(list.map(x => x.color));
+      const color = COLORS.slice(0, -1).find(c => !used.has(c)) || colorFor(list.length);
       const board = { id: 'b-' + uid(), name: 'New board', order: (list.at(-1)?.order ?? -1) + 1, color, updated: now() };
       S.boards.push(board); save(); render();
       const input = $(`[data-board="${board.id}"] .board-name`); input.focus(); input.select();
