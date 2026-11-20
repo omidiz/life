@@ -1,5 +1,5 @@
 // Offline support: network first (so updates show up right away), cache as fallback.
-const CACHE = 'life-v7';
+const CACHE = 'life-v8';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
