@@ -1,12 +1,12 @@
 # Life — personal dashboard
 
-Minimal black & white dashboard for study, work and life. It's an installable web app (PWA) that runs offline.
+Big black & white boards, one for each part of your life. Write your tasks and see everything at once, every day.
+It's an installable web app (PWA) that works offline.
 
-- **Today**: one focus for the day, what's due, habits, quick stats
-- **Tasks**: grouped by area (Study, Work, Personal, Health; you can edit the list in the ⋯ menu), with due dates
-- **Habits**: 7-day grid and streaks
-- **Notes**: quick notes that save as you type
-- **Focus**: 25/50-minute timer that logs time per area
+- **Boards**: Study, Work, Personal, Health to start with. Tap a title to rename it; `+ New board` adds one; ← → reorders; × deletes.
+- **Tasks**: type in `+ Add a task` and press Enter. Tap the text to edit it, tap the circle to tick it off.
+  Finished tasks stay crossed out until the end of the day, then tidy themselves away.
+- Light / dark with ◐. Right-to-left text (Persian, Arabic…) lines up on its own.
 
 ## Sync between devices
 
