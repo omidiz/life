@@ -98,13 +98,12 @@ input { background: transparent; border: none; outline: none; width: 100%; }
 
 /* paragraphs, headings, lists */
 .note { padding: 10px 0; }
-.note .text { font-size: 17px; line-height: 1.6; }
+.note .text { font-size: 18px; line-height: 1.6; }
 .heading { padding: 18px 0 4px; }
 .item.heading:first-child { padding-top: 4px; }
 .heading .text { font-size: 22px; font-weight: 650; letter-spacing: -.015em; }
 .bullet { padding: 4px 0; }
 .bullet .dot { width: 24px; flex: none; text-align: center; font-size: 19px; line-height: 1.45; }
-.text:empty::before { content: 'Type here…'; color: var(--muted); }
 
 .item .del { opacity: 0; color: var(--muted); font-size: 18px; line-height: 1; padding: 2px 4px; }
 .item:hover .del, .item:focus-within .del { opacity: .7; }
@@ -128,21 +127,19 @@ input { background: transparent; border: none; outline: none; width: 100%; }
 .ghost .handle { opacity: 0; }
 body.drag-active, body.drag-active * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
 
-/* add box */
-.add { border-top: 1px dashed var(--rule); padding-top: 12px; }
-.add textarea {
-  flex: 1; min-width: 0; font: inherit; font-size: 18px; line-height: 1.45; padding: 6px 0;
-  background: transparent; border: none; outline: none; resize: none; overflow: hidden; color: inherit;
-}
-.add textarea::placeholder { color: var(--muted); }
-.types { display: none; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
-.add:focus-within .types, .add.open .types { display: flex; }
-.type { font-size: 13px; padding: 4px 11px; border-radius: 20px; color: var(--muted); }
+/* writing straight on the board */
+.board { cursor: text; }
+.board-head, .item button, .handle, .swatches { cursor: default; }
+.item button { cursor: pointer; }
+.write-here { min-height: 48px; }
+.empty { cursor: text; }
+.text:empty::before { content: attr(data-ph); color: var(--muted); pointer-events: none; }
+.typebar { display: none; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+.item:focus-within .typebar { display: flex; }
+.due-edit ~ .typebar, .item:has(.due-edit:focus-within) .typebar { display: none; }
+.type { font-size: 12px; padding: 3px 10px; border-radius: 20px; color: var(--muted); box-shadow: inset 0 0 0 1px var(--rule); }
 .type:hover { color: var(--fg); }
-.type.on { color: var(--fg); background: var(--rule); font-weight: 600; }
-.add .add-btn { display: none; }
-.add[data-type=note] .add-btn { display: inline-block; }
-.add:not([data-type=task]) .due-toggle { display: none; }
+.type.on { color: var(--fg); background: var(--rule); font-weight: 600; box-shadow: none; }
 
 .new-board {
   border: 1.5px dashed var(--line); border-radius: 28px; min-height: 520px;

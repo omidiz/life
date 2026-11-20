@@ -4,13 +4,13 @@ Big black & white boards, one for each part of your life. Write your tasks and s
 It's an installable web app (PWA) that works offline.
 
 - **Boards**: Study, Work, Personal, Health to start with, each in its own soft neutral colour. Tap a title to rename it; ○ changes the colour; `+ New board` adds one; ← → reorders; × deletes.
-- **Write anything on a board**: tap `+ Add a task`, then choose **Task**, **Note** (a paragraph), **Heading** or **List**.
-  Shortcuts work too: start with `# ` for a heading, `- ` for a list item, `[] ` for a task.
-  In a note, Enter makes a new line; press **Add** (or Ctrl/⌘+Enter) to save it. Pasting several lines as tasks or list items adds one per line.
-- **Edit in place**: tap any text to change it. In a task or list, Enter starts the next one and Enter on an empty line stops.
+- **Write straight on a board**: tap anywhere on it and type, like a page. Enter starts a new line.
+  Start a line with `[] ` for a task, `- ` for a list item or `# ` for a heading, or tap **Text · Task · List · Heading**
+  under the line you're writing. In a task or list, Enter makes the next one; Enter on an empty one turns it back into text.
+  Shift+Enter adds a line break inside a paragraph. Backspace on an empty line removes it.
   Tap the circle to tick a task off; finished tasks stay crossed out until the end of the day, then tidy themselves away.
 - **Drag** the ⋮⋮ handle (left of each item) to reorder, or drop it on another board to move it there.
-- **Deadlines (optional)**: tap the clock next to a task (or next to `+ Add a task`) to pick a date, and a time if you want.
+- **Deadlines (optional)**: tap the clock next to a task to pick a date, and a time if you want.
   The task then shows how long is left: "3 h left", "Due today", "4 days left", "2 days late". Late tasks turn black,
   and tasks due within a day get an outline.
 - Light / dark with ◐. Right-to-left text (Persian, Arabic…) lines up on its own.
