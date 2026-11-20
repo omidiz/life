@@ -67,8 +67,11 @@
     const today = dayKey();
     return live(S.tasks)
       .filter(t => t.boardId === boardId && (!isTask(t) || !t.done || t.doneOn === today))
+      // an empty line only shows on the device where someone is writing in it
+      .filter(t => t.title || t.id === keepId || t.id === document.activeElement?.closest?.('[data-id]')?.dataset.id)
       .sort((a, b) => a.pos - b.pos || a.created - b.created);
   };
+  let keepId = null; // the empty line currently being written in
   const nextPos = boardId => Math.max(-1, ...S.tasks.filter(t => t.boardId === boardId).map(t => t.pos)) + 1;
 
   /* ---------- deadlines ---------- */
@@ -106,20 +109,21 @@
   const readDue = (date, time) => (date ? date + (time ? 'T' + time : '') : null);
 
   /* ---------- item types ---------- */
+  // 'note' is a plain paragraph of text (shown as "Text").
   const TYPES = {
-    task:    { label: 'Task',    placeholder: '+ Add a task' },
-    note:    { label: 'Note',    placeholder: '+ Write a note…' },
-    heading: { label: 'Heading', placeholder: '+ Add a heading' },
-    bullet:  { label: 'List',    placeholder: '+ Add a list item' },
+    note:    { label: 'Text',    ph: 'Write…   [] task   - list   # heading' },
+    task:    { label: 'Task',    ph: 'Task' },
+    bullet:  { label: 'List',    ph: 'List item' },
+    heading: { label: 'Heading', ph: 'Heading' },
   };
-  let addTypes = {};
-  try { addTypes = JSON.parse(localStorage.getItem('life-addtypes')) || {}; } catch {}
-  const addTypeOf = id => (TYPES[addTypes[id]] ? addTypes[id] : 'task');
+  const typeOf = t => (TYPES[t.type] ? t.type : 'task');
+  // Typing one of these at the start of a line turns it into that kind of item.
+  const SHORTCUTS = [[/^#{1,3}\s/, 'heading'], [/^[-*•]\s/, 'bullet'], [/^\[\s?\]\s?/, 'task']];
 
   const header = () => {
     $('#date').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
     const ids = new Set(boards().map(b => b.id));
-    const tasks = live(S.tasks).filter(t => isTask(t) && ids.has(t.boardId));
+    const tasks = live(S.tasks).filter(t => isTask(t) && t.title && ids.has(t.boardId));
     const open = tasks.filter(t => !t.done).length;
     const doneToday = tasks.filter(t => t.doneOn === dayKey()).length;
     const late = tasks.filter(t => dueInfo(t)?.level === 'late').length;
@@ -129,14 +133,17 @@
   };
 
   const itemHTML = t => {
-    const type = TYPES[t.type] ? t.type : 'task';
+    const type = typeOf(t);
     const handle = `<span class="handle" title="Drag to move" aria-hidden="true">${gripIcon}</span>`;
-    const text = `<div class="text" contenteditable="plaintext-only" dir="auto" spellcheck="false">${esc(t.title)}</div>`;
+    const text = `<div class="text" contenteditable="plaintext-only" dir="auto" spellcheck="false" data-ph="${esc(TYPES[type].ph)}">${esc(t.title)}</div>`;
+    // Small bar under the line you're writing in, to switch what kind of line it is.
+    const typebar = `<div class="typebar">${Object.entries(TYPES).map(([k, v]) =>
+      `<button class="type ${k === type ? 'on' : ''}" data-act="settype" data-type="${k}" tabindex="-1">${v.label}</button>`).join('')}</div>`;
     const del = `<button class="del" data-act="del" aria-label="Delete">×</button>`;
     if (type !== 'task') return `
       <li class="item ${type}" data-id="${t.id}">
         ${handle}${type === 'bullet' ? '<span class="dot">•</span>' : ''}
-        <div class="body">${text}</div>${del}
+        <div class="body">${text}${typebar}</div>${del}
       </li>`;
     const info = dueInfo(t);
     return `
@@ -150,6 +157,7 @@
             <button class="pill" type="submit">Save</button>
             ${t.due ? '<button class="pill ghost" type="button" data-act="cleardue">Remove</button>' : ''}
           </form>` : ''}
+          ${typebar}
         </div>
         <button class="tool" data-act="editdue" title="Deadline" aria-label="Set deadline">${clockIcon}</button>
         ${del}
@@ -158,8 +166,7 @@
 
   const boardHTML = (b, i, n) => {
     const items = visibleItems(b.id);
-    const open = items.filter(t => isTask(t) && !t.done).length;
-    const type = addTypeOf(b.id);
+    const open = items.filter(t => isTask(t) && !t.done && t.title).length;
     return `
       <section class="board" data-board="${esc(b.id)}" data-color="${b.color}" style="--board: var(--c-${b.color})">
         <div class="board-head">
@@ -176,30 +183,22 @@
           <button class="swatch ${c === b.color ? 'on' : ''}" data-act="color" data-color="${c}" style="background: var(--c-${c})" title="${c}" aria-label="${c}"></button>`).join('')}
         </div>` : ''}
         <ul class="items">
-          ${items.map(itemHTML).join('') || '<li class="empty">Nothing here yet.</li>'}
+          ${items.map(itemHTML).join('') || '<li class="empty">Tap anywhere to write.</li>'}
         </ul>
-        <form class="add ${addDue === b.id ? 'open' : ''}" data-form="add" data-type="${type}">
-          <div class="types" role="group" aria-label="What to add">
-            ${Object.entries(TYPES).map(([k, v]) => `<button type="button" class="type ${k === type ? 'on' : ''}" data-act="type" data-type="${k}">${v.label}</button>`).join('')}
-          </div>
-          <div class="add-row">
-            <textarea name="title" rows="1" placeholder="${TYPES[type].placeholder}" autocomplete="off" dir="auto" enterkeyhint="${type === 'note' ? 'enter' : 'done'}"></textarea>
-            <button type="button" class="tool due-toggle ${addDue === b.id ? 'on' : ''}" data-act="adddue" title="Add a deadline" aria-label="Add a deadline">${clockIcon}</button>
-            <button type="submit" class="pill add-btn">Add</button>
-          </div>
-          ${addDue === b.id ? `<div class="due-edit">${dueFields(null)}<span class="muted">optional</span></div>` : ''}
-        </form>
+        <div class="write-here" aria-hidden="true"></div>
       </section>`;
   };
 
-  let renderPending = false, picking = null, dueEditing = null, addDue = null;
-  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .add textarea:not(:placeholder-shown), #boards .due-edit input') || !!drag;
+  let renderPending = false, picking = null, dueEditing = null, quiet = false;
+  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .due-edit input') || !!drag;
   const render = () => {
     renderPending = false;
     header();
     const list = boards();
+    quiet = true; // re-drawing removes the line being edited; that's not the user leaving it
     $('#boards').innerHTML = list.map((b, i) => boardHTML(b, i, list.length)).join('') +
       '<button class="new-board" data-act="newboard">+ New board</button>';
+    quiet = false;
   };
   // Never yank the text out from under the user when synced data arrives.
   const softRender = () => (editing() ? (renderPending = true) : render());
@@ -208,48 +207,58 @@
   const boardOf = el => S.boards.find(b => b.id === el.closest('[data-board]')?.dataset.board);
   const taskOf = el => S.tasks.find(t => t.id === el.closest('[data-id]')?.dataset.id);
   const remove = x => { x.deleted = true; x.updated = now(); };
-  const addBox = id => $(`[data-board="${CSS.escape(id)}"] .add textarea`);
-  const focusAdd = id => addBox(id)?.focus();
   const focusItem = (id, atEnd = true) => {
     const el = $(`[data-id="${CSS.escape(id)}"] .text`); if (!el) return;
     el.focus();
-    if (atEnd) { const r = document.createRange(); r.selectNodeContents(el); r.collapse(false); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+    const r = document.createRange(); r.selectNodeContents(el); r.collapse(!atEnd);
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r);
   };
-  const grow = ta => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+  // Re-draw, then put the cursor back where the user is writing.
+  const redrawAndFocus = id => { keepId = id; quiet = true; render(); focusItem(id); quiet = false; };
 
-  // Switch the add box between Task / Note / Heading / List without re-rendering (keeps the keyboard open).
-  const setAddType = (form, type) => {
-    const id = boardOf(form).id;
-    addTypes[id] = type; localStorage.setItem('life-addtypes', JSON.stringify(addTypes));
-    form.dataset.type = type;
-    form.querySelectorAll('.type').forEach(b => b.classList.toggle('on', b.dataset.type === type));
-    const ta = form.querySelector('textarea');
-    ta.placeholder = TYPES[type].placeholder;
-    ta.setAttribute('enterkeyhint', type === 'note' ? 'enter' : 'done');
-    if (type !== 'task' && addDue === id) { addDue = null; form.classList.remove('open'); form.querySelector('.due-edit')?.remove(); form.querySelector('.due-toggle').classList.remove('on'); }
-    ta.focus();
+  const newItem = (boardId, type, pos, title = '') => {
+    const item = { id: uid(), boardId, type, title, due: null, done: false, doneOn: null, pos, created: now(), updated: now() };
+    S.tasks.push(item); return item;
   };
+  const insertAfter = (t, type, title = '') => {
+    const items = visibleItems(t.boardId), next = items[items.indexOf(t) + 1];
+    return newItem(t.boardId, type, next ? (t.pos + next.pos) / 2 : t.pos + 1, title);
+  };
+  // Start writing at the end of a board (reuses an empty last line if there is one).
+  const writeAtEnd = boardId => {
+    const last = visibleItems(boardId).at(-1);
+    if (last && !last.title) return focusItem(last.id);
+    const prevType = last ? typeOf(last) : 'note';
+    const item = newItem(boardId, prevType === 'task' || prevType === 'bullet' ? prevType : 'note', nextPos(boardId));
+    store(); redrawAndFocus(item.id);
+  };
+  const setType = (t, type) => { t.type = type; t.updated = now(); store(); redrawAndFocus(t.id); };
 
   /* ---------- events ---------- */
+  // Keep the cursor in the line when tapping the type bar.
+  $('#boards').addEventListener('pointerdown', e => { if (e.target.closest('.typebar')) e.preventDefault(); });
+
   $('#boards').addEventListener('click', e => {
-    const b = e.target.closest('button'); if (!b) return;
+    const b = e.target.closest('button');
+    if (!b) {
+      // A tap on the board's empty space starts a new line at the end.
+      const board = e.target.closest('.board');
+      if (board && !e.target.closest('.item, .board-head, .swatches, form')) writeAtEnd(board.dataset.board);
+      return;
+    }
     const act = b.dataset.act;
     if (act === 'toggle') {
       const t = taskOf(b); t.done = !t.done; t.doneOn = t.done ? dayKey() : null; t.updated = now();
     } else if (act === 'del') {
       remove(taskOf(b));
-    } else if (act === 'type') {
-      return setAddType(b.closest('form'), b.dataset.type);
+    } else if (act === 'settype') {
+      const t = taskOf(b), el = b.closest('.item').querySelector('.text');
+      t.title = el.textContent; return setType(t, b.dataset.type);
     } else if (act === 'editdue') {
       const id = taskOf(b).id; dueEditing = dueEditing === id ? null : id; render();
       return $(`[data-id="${id}"] .due-edit input`)?.focus();
     } else if (act === 'cleardue') {
       const t = taskOf(b); t.due = null; t.updated = now(); dueEditing = null;
-    } else if (act === 'adddue') {
-      const board = boardOf(b), text = addBox(board.id).value;
-      addDue = addDue === board.id ? null : board.id; render();
-      const ta = addBox(board.id); ta.value = text; grow(ta);
-      return addDue ? $(`[data-board="${CSS.escape(board.id)}"] .add input[type=date]`)?.focus() : ta.focus();
     } else if (act === 'newboard') {
       const list = boards();
       const used = new Set(list.map(x => x.color));
@@ -264,7 +273,7 @@
       const board = boardOf(b); board.color = b.dataset.color; board.updated = now(); picking = null;
     } else if (act === 'delboard') {
       const board = boardOf(b);
-      const count = live(S.tasks).filter(t => t.boardId === board.id && !(isTask(t) && t.done)).length;
+      const count = live(S.tasks).filter(t => t.boardId === board.id && t.title && !(isTask(t) && t.done)).length;
       if (!confirm(`Delete "${board.name}"${count ? ` and everything on it (${count} item${count > 1 ? 's' : ''})` : ''}?`)) return;
       remove(board);
       S.tasks.filter(t => t.boardId === board.id && !t.deleted).forEach(remove);
@@ -277,8 +286,6 @@
     save(); render();
   });
 
-  // Quick shortcuts while typing in the add box:  "# " heading · "- " list · "[] " task
-  const SHORTCUTS = [[/^#{1,3}\s+/, 'heading'], [/^[-*•]\s+/, 'bullet'], [/^\[\s?\]\s+/, 'task']];
   $('#boards').addEventListener('submit', e => {
     e.preventDefault();
     const form = e.target, f = form.elements;
@@ -286,66 +293,66 @@
       const t = taskOf(form); t.due = readDue(f.date.value, f.time.value); t.updated = now();
       dueEditing = null; save(); return render();
     }
-    const board = boardOf(form); if (!board) return;
-    let type = addTypeOf(board.id), raw = f.title.value.replace(/\s+$/, '');
-    if (!raw.trim()) return;
-    for (const [re, t] of SHORTCUTS) if (re.test(raw)) { type = t; raw = raw.replace(re, ''); break; }
-    // A note keeps its line breaks; anything else pasted as several lines becomes several items.
-    const lines = type === 'note' ? [raw.trim()] : raw.split('\n').map(l => l.trim()).filter(Boolean);
-    const due = type === 'task' && f.date ? readDue(f.date.value, f.time.value) : null;
-    let pos = nextPos(board.id);
-    for (const title of lines)
-      S.tasks.push({ id: uid(), boardId: board.id, type, title, due, done: false, doneOn: null, pos: pos++, created: now(), updated: now() });
-    addDue = null; save(); render(); focusAdd(board.id);
   });
 
-  // Editing items in place
+  // Writing in place
   $('#boards').addEventListener('input', e => {
-    if (e.target.classList.contains('text')) {
-      const t = taskOf(e.target); t.title = e.target.textContent; t.updated = now(); store();
-    } else if (e.target.matches('.add textarea')) grow(e.target);
+    const el = e.target; if (!el.classList.contains('text')) return;
+    const t = taskOf(el);
+    t.title = el.textContent; t.updated = now();
+    const hit = typeOf(t) === 'note' && SHORTCUTS.find(([re]) => re.test(t.title));
+    if (hit) { t.title = t.title.replace(hit[0], ''); return setType(t, hit[1]); }
+    store();
   });
 
-  const insertAfter = (t, type) => {
-    const items = visibleItems(t.boardId), next = items[items.indexOf(t) + 1];
-    const pos = next ? (t.pos + next.pos) / 2 : t.pos + 1;
-    const item = { id: uid(), boardId: t.boardId, type, title: '', due: null, done: false, doneOn: null, pos, created: now(), updated: now() };
-    S.tasks.push(item); return item;
-  };
+  // Pasting several lines into a task or list line adds one item per line.
+  $('#boards').addEventListener('paste', e => {
+    const el = e.target.closest?.('.text'); if (!el) return;
+    const t = taskOf(el), lines = (e.clipboardData?.getData('text/plain') || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (typeOf(t) === 'note' || lines.length < 2) return;
+    e.preventDefault();
+    t.title = (el.textContent + lines[0]).trim(); t.updated = now();
+    let prev = t;
+    for (const line of lines.slice(1)) prev = insertAfter(prev, typeOf(t), line);
+    save(); redrawAndFocus(prev.id);
+  });
 
   $('#boards').addEventListener('keydown', e => {
     const el = e.target;
     if (el.classList.contains('text')) {
-      const t = taskOf(el), type = t.type || 'task';
-      if (e.key === 'Enter' && !e.shiftKey && type !== 'note') {
+      const t = taskOf(el), type = typeOf(t), title = el.textContent.trim();
+      if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        const title = el.textContent.trim();
-        if (type === 'heading') return el.blur();
-        if (!title) { remove(t); save(); render(); return focusAdd(t.boardId); } // Enter on an empty line ends the list
-        t.title = title; t.updated = now();
-        const item = insertAfter(t, type); store(); render(); focusItem(item.id);
-      } else if (e.key === 'Backspace' && el.textContent === '' && type !== 'note') {
+        if (!title) {
+          // Enter on an empty task / list line turns it back into plain text (like most editors)
+          if (type !== 'note') setType(t, 'note');
+          return;
+        }
+        t.title = type === 'note' ? el.textContent.replace(/^\s+|\s+$/g, '') : title; t.updated = now();
+        const item = insertAfter(t, type === 'heading' ? 'note' : type); store(); redrawAndFocus(item.id);
+      } else if (e.key === 'Backspace' && el.textContent === '') {
         e.preventDefault();
+        if (type !== 'note') return setType(t, 'note');
         const items = visibleItems(t.boardId), prev = items[items.indexOf(t) - 1];
-        remove(t); save(); render(); prev ? focusItem(prev.id) : focusAdd(t.boardId);
+        remove(t); save();
+        if (prev) redrawAndFocus(prev.id); else { render(); }
       } else if (e.key === 'Escape') el.blur();
     } else if (el.classList.contains('board-name') && e.key === 'Enter') {
       e.preventDefault(); el.blur();
-    } else if (el.matches('.add textarea')) {
-      // a shortcut at the start ("# ", "- ", "[] ") decides the type, even while Note is selected
-      const type = SHORTCUTS.find(([re]) => re.test(el.value))?.[1] || el.closest('form').dataset.type;
-      if (e.key === 'Enter' && !e.shiftKey && (type !== 'note' || e.ctrlKey || e.metaKey)) { e.preventDefault(); el.closest('form').requestSubmit(); }
-      if (e.key === 'Escape') { el.value = ''; grow(el); el.blur(); }
     }
   });
   $('#boards').addEventListener('focusout', e => {
+    if (quiet) return;
     if (e.target.classList.contains('text')) {
+      if (e.relatedTarget && e.target.closest('.item')?.contains(e.relatedTarget)) return; // tapped its own type bar
+      keepId = null;
       const t = taskOf(e.target); if (!t || t.deleted) return;
       const raw = e.target.textContent;
       const title = t.type === 'note' ? raw.replace(/^\s+|\s+$/g, '') : raw.replace(/\s+/g, ' ').trim();
       if (!title) remove(t); else t.title = title;
       t.updated = now(); save();
       if (!title) setTimeout(() => { if (!editing()) render(); else renderPending = true; }, 0);
+      else setTimeout(() => { if (!editing()) header(); }, 0);
     } else if (e.target.classList.contains('board-name')) {
       const board = boardOf(e.target), name = e.target.value.trim();
       if (name && name !== board.name) { board.name = name; board.updated = now(); save(); }
