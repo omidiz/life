@@ -1,4 +1,4 @@
-/* Life — a minimal personal dashboard.
+/* Life — big boards for the parts of your life.
    Data lives in localStorage and optionally syncs through a secret GitHub Gist.
    Every record carries an `updated` timestamp; deletes are kept as tombstones,
    so changes from several devices merge instead of overwriting each other. */
@@ -9,43 +9,32 @@
   const $ = (s, el = document) => el.querySelector(s);
   const uid = () => Math.random().toString(36).slice(2, 10);
   const now = () => Date.now();
-  const dayKey = (d = new Date()) => {
-    const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-    return z.toISOString().slice(0, 10);
-  };
-  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const dayKey = (d = new Date()) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const live = arr => arr.filter(x => !x.deleted);
+  // Stable id from a name, so two fresh devices create the *same* default boards.
+  const boardIdFor = name => 'b-' + String(name).trim().toLowerCase().replace(/\s+/g, '-');
 
+  const DEFAULT_BOARDS = ['Study', 'Work', 'Personal', 'Health'];
   const defaults = () => ({
-    areas: ['Study', 'Work', 'Personal', 'Health'],
-    areasUpdated: 0,
-    tasks: [],      // {id,title,area,due,done,doneOn,created,updated,deleted?}
-    habits: [       // fixed ids so two fresh devices don't duplicate them
-      { id: 'h-read', name: 'Read 20 min', log: {}, updated: 0 },
-      { id: 'h-exercise', name: 'Exercise', log: {}, updated: 0 },
-    ],              // log: { 'YYYY-MM-DD': {on, t} }
-    notes: [],      // {id,text,updated,deleted?}
-    focus: {},      // { 'YYYY-MM-DD': {text, t} }
-    sessions: [],   // {id,day,area,mins,updated}
-    theme: null,    // per device, never synced
+    boards: DEFAULT_BOARDS.map((name, i) => ({ id: boardIdFor(name), name, order: i, updated: 0 })),
+    tasks: [],   // {id, boardId, title, done, doneOn, created, updated, deleted?}
+    theme: null, // per device, never synced
   });
 
-  // Bring older saved data up to the current shape.
+  // Bring older saved data (from the tabbed version) up to the current shape.
   const migrate = raw => {
     const s = Object.assign(defaults(), raw || {});
-    s.areasUpdated ||= 0;
-    s.tasks.forEach(t => { t.updated ??= t.created || 0; });
-    s.notes.forEach(n => { n.updated ??= 0; });
-    s.habits.forEach(h => {
-      h.updated ??= 0; h.log ||= {};
-      for (const k in h.log) if (typeof h.log[k] !== 'object') h.log[k] = { on: !!h.log[k], t: 0 };
-    });
-    for (const k in s.focus) if (typeof s.focus[k] === 'string') s.focus[k] = { text: s.focus[k], t: 0 };
-    if (!Array.isArray(s.sessions)) {
-      const arr = [];
-      for (const [day, m] of Object.entries(s.sessions)) for (const [area, mins] of Object.entries(m)) arr.push({ id: uid(), day, area, mins, updated: 0 });
-      s.sessions = arr;
+    if (!raw?.boards) {
+      const names = raw?.areas?.length ? raw.areas : DEFAULT_BOARDS;
+      s.boards = names.map((name, i) => ({ id: boardIdFor(name), name, order: i, updated: raw?.areasUpdated || 0 }));
     }
+    s.tasks.forEach(t => {
+      t.updated ??= t.created || 0;
+      if (!t.boardId) t.boardId = boardIdFor(t.area || s.boards[0]?.name || 'Tasks');
+      if (!s.boards.some(b => b.id === t.boardId)) // task points at a board we don't have: recreate it
+        s.boards.push({ id: t.boardId, name: t.area || 'Tasks', order: s.boards.length, updated: 0 });
+    });
     return s;
   };
 
@@ -53,10 +42,6 @@
   try { S = migrate(JSON.parse(localStorage.getItem(KEY))); } catch { S = defaults(); }
   const store = () => localStorage.setItem(KEY, JSON.stringify(S));
   const save = () => { store(); scheduleSync(); };
-
-  let tab = location.hash.slice(1) || 'today';
-  let taskFilter = 'All';
-  let showDone = false;
 
   /* ---------- theme ---------- */
   const applyTheme = () => {
@@ -69,252 +54,134 @@
     store(); applyTheme();
   };
 
-  /* ---------- header ---------- */
-  const header = () => {
-    const d = new Date();
-    $('#date').textContent = d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-    const h = d.getHours();
-    $('#greet').textContent = h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-  };
-
-  /* ---------- shared pieces ---------- */
-  const isOn = (h, k) => !!h.log[k]?.on;
-  const minutesOn = day => live(S.sessions).filter(s => s.day === day).reduce((a, s) => a + s.mins, 0);
-
-  const taskItem = t => {
-    const today = dayKey();
-    let due = '';
-    if (t.due) {
-      const late = !t.done && t.due < today;
-      const label = t.due === today ? 'Today' : new Date(t.due + 'T00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      due = `<span class="tag ${late ? 'late' : ''}">${late ? 'Late · ' : ''}${label}</span>`;
-    }
-    return `<li class="item ${t.done ? 'done' : ''}" data-id="${t.id}">
-      <button class="check" data-act="toggle" aria-label="Toggle">${t.done ? '✓' : ''}</button>
-      <span class="title">${esc(t.title)}</span>
-      ${due}<span class="tag">${esc(t.area)}</span>
-      <button class="del" data-act="del" aria-label="Delete">×</button>
-    </li>`;
-  };
-  const areaOptions = sel => S.areas.map(a => `<option ${a === sel ? 'selected' : ''}>${esc(a)}</option>`).join('');
-  const addTaskForm = (defaultDue = '') => `
-    <form class="add-task" data-form="task">
-      <input name="title" placeholder="Add a task…" autocomplete="off" required>
-      <select name="area">${areaOptions(taskFilter !== 'All' ? taskFilter : S.areas[0])}</select>
-      <input name="due" type="date" value="${defaultDue}">
-      <button class="btn">Add</button>
-    </form>`;
-
-  /* ---------- views ---------- */
-  const views = {
-    today() {
-      const today = dayKey();
-      const tasks = live(S.tasks), habits = live(S.habits);
-      const open = tasks.filter(t => !t.done);
-      const todays = tasks.filter(t => t.due && t.due <= today && (!t.done || t.doneOn === today));
-      const doneToday = tasks.filter(t => t.doneOn === today).length;
-      const habitsDone = habits.filter(h => isOn(h, today)).length;
-      return `
-        <h2>Today's focus</h2>
-        <input class="focus-input" id="focusInput" placeholder="What matters most today?" value="${esc(S.focus[today]?.text || '')}">
-
-        <h2>Overview</h2>
-        <div class="stats">
-          <div class="stat"><b>${doneToday}</b><span>done today · ${open.length} open</span></div>
-          <div class="stat"><b>${habitsDone}/${habits.length}</b><span>habits</span></div>
-          <div class="stat"><b>${minutesOn(today)}</b><span>focus minutes</span></div>
-        </div>
-
-        <h2>Due today</h2>
-        ${addTaskForm(today)}
-        <ul class="list">${todays.length ? todays.sort(byDue).map(taskItem).join('') : '<li class="empty">Nothing due. Enjoy the calm.</li>'}</ul>
-
-        <h2>Habits</h2>
-        <ul class="list">${habits.map(h => `
-          <li class="item ${isOn(h, today) ? 'done' : ''}" data-habit="${h.id}">
-            <button class="check" data-act="habit" data-day="${today}">${isOn(h, today) ? '✓' : ''}</button>
-            <span class="title">${esc(h.name)}</span>
-            <span class="tag">${streak(h)} day streak</span>
-          </li>`).join('') || '<li class="empty">No habits yet.</li>'}
-        </ul>`;
-    },
-
-    tasks() {
-      let list = live(S.tasks).filter(t => taskFilter === 'All' || t.area === taskFilter);
-      const done = list.filter(t => t.done).sort((a, b) => b.updated - a.updated);
-      list = list.filter(t => !t.done).sort(byDue);
-      return `
-        ${addTaskForm()}
-        <div class="filters">
-          ${['All', ...S.areas].map(a => `<button class="chip ${a === taskFilter ? 'active' : ''}" data-filter="${esc(a)}">${esc(a)}</button>`).join('')}
-        </div>
-        <ul class="list">${list.map(taskItem).join('') || '<li class="empty">No open tasks.</li>'}</ul>
-        ${done.length ? `<h2><button data-act="showdone" class="muted">${showDone ? '▾' : '▸'} Completed (${done.length})</button></h2>
-          ${showDone ? `<ul class="list">${done.map(taskItem).join('')}</ul>` : ''}` : ''}`;
-    },
-
-    habits() {
-      const days = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - 6 + i); return d; });
-      const today = dayKey();
-      return `
-        <form class="row" data-form="habit">
-          <input name="name" placeholder="New habit…" autocomplete="off" required>
-          <button class="btn">Add</button>
-        </form>
-        <h2>Last 7 days</h2>
-        ${live(S.habits).map(h => `
-          <div class="habit" data-habit="${h.id}">
-            <div class="habit-head">
-              <span>${esc(h.name)} <span class="muted">· ${streak(h)} day streak</span></span>
-              <button class="del" data-act="delhabit" aria-label="Delete">×</button>
-            </div>
-            <div class="days">${days.map(d => {
-              const k = dayKey(d);
-              return `<button class="day ${isOn(h, k) ? 'on' : ''} ${k === today ? 'today' : ''}" data-act="habit" data-day="${k}">
-                ${d.toLocaleDateString(undefined, { weekday: 'narrow' })}<br>${d.getDate()}</button>`;
-            }).join('')}</div>
-          </div>`).join('') || '<p class="empty">Add a habit to start tracking.</p>'}`;
-    },
-
-    notes() {
-      return `
-        <button class="btn" data-act="newnote">+ New note</button>
-        <h2>Notes</h2>
-        ${live(S.notes).sort((a, b) => b.created - a.created || b.updated - a.updated).map(n => `
-          <div class="note" data-note="${n.id}">
-            <textarea placeholder="Write something…">${esc(n.text)}</textarea>
-            <div class="note-foot">
-              <span class="muted">${new Date(n.updated).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span>
-              <button class="del" data-act="delnote" aria-label="Delete">×</button>
-            </div>
-          </div>`).join('') || '<p class="empty">No notes yet.</p>'}`;
-    },
-
-    focus() {
-      const since = new Date(); since.setDate(since.getDate() - 6);
-      const from = dayKey(since), week = {};
-      for (const s of live(S.sessions)) if (s.day >= from) week[s.area] = (week[s.area] || 0) + s.mins;
-      const max = Math.max(1, ...Object.values(week));
-      return `
-        <div class="timer">
-          <div class="mode">
-            ${[25, 50, 5].map(m => `<button class="chip ${timer.len === m * 60 ? 'active' : ''}" data-len="${m}">${m} min</button>`).join('')}
-          </div>
-          <div class="time" id="time">${fmt(timer.left)}</div>
-          <div class="row">
-            <select id="focusArea">${areaOptions(timer.area)}</select>
-            <button class="btn" data-act="timer">${timer.running ? 'Pause' : 'Start'}</button>
-            <button class="btn ghost" data-act="reset">Reset</button>
-          </div>
-        </div>
-        <h2>This week</h2>
-        ${Object.keys(week).length ? Object.entries(week).sort((a, b) => b[1] - a[1]).map(([a, m]) => `
-          <div style="margin-bottom:10px">
-            <div class="row" style="justify-content:space-between"><span>${esc(a)}</span><span class="muted">${Math.floor(m / 60)}h ${m % 60}m</span></div>
-            <div style="height:4px;background:var(--line);border-radius:2px;margin-top:4px">
-              <div style="height:100%;width:${(m / max) * 100}%;background:var(--fg);border-radius:2px"></div>
-            </div>
-          </div>`).join('') : '<p class="empty">Finish a focus session to see it here.</p>'}`;
-    },
-  };
-
-  const byDue = (a, b) => (a.due || '9999').localeCompare(b.due || '9999') || a.created - b.created;
-  const streak = h => {
-    let n = 0; const d = new Date();
-    if (!isOn(h, dayKey(d))) d.setDate(d.getDate() - 1); // today not done yet doesn't break the streak
-    while (isOn(h, dayKey(d))) { n++; d.setDate(d.getDate() - 1); }
-    return n;
-  };
-
-  /* ---------- focus timer ---------- */
-  const timer = { len: 1500, left: 1500, running: false, end: 0, area: null, iv: null };
-  const fmt = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-  const tick = () => {
-    timer.left = Math.max(0, Math.round((timer.end - now()) / 1000));
-    const el = $('#time'); if (el) el.textContent = fmt(timer.left);
-    document.title = timer.running ? `${fmt(timer.left)} · Life` : 'Life';
-    if (timer.left === 0) finishTimer();
-  };
-  const finishTimer = () => {
-    clearInterval(timer.iv); timer.running = false;
-    const mins = Math.round(timer.len / 60);
-    if (mins > 5) S.sessions.push({ id: uid(), day: dayKey(), area: timer.area || S.areas[0], mins, updated: now() }); // breaks aren't logged
-    save();
-    timer.left = timer.len; document.title = 'Life';
-    try { navigator.vibrate?.(300); new Notification('Focus session complete'); } catch {}
-    render();
-  };
-
   /* ---------- render ---------- */
+  const boards = () => live(S.boards).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+  // Finished tasks stay visible (crossed out) for the rest of the day, then tidy themselves away.
+  const visibleTasks = boardId => {
+    const today = dayKey();
+    return live(S.tasks)
+      .filter(t => t.boardId === boardId && (!t.done || t.doneOn === today))
+      .sort((a, b) => a.done - b.done || a.created - b.created);
+  };
+
+  const header = () => {
+    $('#date').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+    const ids = new Set(boards().map(b => b.id));
+    const tasks = live(S.tasks).filter(t => ids.has(t.boardId));
+    const open = tasks.filter(t => !t.done).length;
+    const doneToday = tasks.filter(t => t.doneOn === dayKey()).length;
+    $('#summary').textContent = `${open} to do` + (doneToday ? ` · ${doneToday} done today` : '');
+  };
+
+  const boardHTML = (b, i, n) => {
+    const tasks = visibleTasks(b.id);
+    const open = tasks.filter(t => !t.done).length;
+    return `
+      <section class="board" data-board="${esc(b.id)}">
+        <div class="board-head">
+          <input class="board-name" value="${esc(b.name)}" dir="auto" aria-label="Board name" maxlength="40">
+          <span class="board-count">${open || ''}</span>
+          <div class="board-menu">
+            ${i > 0 ? '<button class="mini" data-act="left" title="Move earlier" aria-label="Move earlier">←</button>' : ''}
+            ${i < n - 1 ? '<button class="mini" data-act="right" title="Move later" aria-label="Move later">→</button>' : ''}
+            <button class="mini" data-act="delboard" title="Delete board" aria-label="Delete board">×</button>
+          </div>
+        </div>
+        <ul class="tasks">
+          ${tasks.map(t => `
+            <li class="task ${t.done ? 'done' : ''}" data-id="${t.id}">
+              <button class="check" data-act="toggle" aria-label="${t.done ? 'Mark not done' : 'Mark done'}">${t.done ? '✓' : ''}</button>
+              <span class="text" contenteditable="plaintext-only" dir="auto" spellcheck="false">${esc(t.title)}</span>
+              <button class="del" data-act="del" aria-label="Delete task">×</button>
+            </li>`).join('') || '<li class="empty">Nothing here yet.</li>'}
+        </ul>
+        <form class="add" data-form="task">
+          <input name="title" placeholder="+ Add a task" autocomplete="off" dir="auto" enterkeyhint="done">
+        </form>
+      </section>`;
+  };
+
   let renderPending = false;
-  const typing = () => document.activeElement?.matches?.('#view input[type=text], #view input:not([type]), #view textarea');
+  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .add input:not(:placeholder-shown)');
   const render = () => {
     renderPending = false;
     header();
-    document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-    $('#view').innerHTML = (views[tab] || views.today)();
+    const list = boards();
+    $('#boards').innerHTML = list.map((b, i) => boardHTML(b, i, list.length)).join('') +
+      '<button class="new-board" data-act="newboard">+ New board</button>';
   };
-  // Don't yank the text box out from under the user when synced data arrives.
-  const softRender = () => (typing() ? (renderPending = true) : render());
-  $('#view').addEventListener('focusout', () => setTimeout(() => { if (renderPending && !typing()) render(); }, 0));
+  // Never yank the text out from under the user when synced data arrives.
+  const softRender = () => (editing() ? (renderPending = true) : render());
+  $('#boards').addEventListener('focusout', () => setTimeout(() => { if (renderPending && !editing()) render(); }, 0));
 
-  const findTask = el => S.tasks.find(t => t.id === el.closest('[data-id]')?.dataset.id);
-  const findHabit = el => S.habits.find(h => h.id === el.closest('[data-habit]')?.dataset.habit);
-  const findNote = el => S.notes.find(n => n.id === el.closest('[data-note]')?.dataset.note);
+  const boardOf = el => S.boards.find(b => b.id === el.closest('[data-board]')?.dataset.board);
+  const taskOf = el => S.tasks.find(t => t.id === el.closest('[data-id]')?.dataset.id);
   const remove = x => { x.deleted = true; x.updated = now(); };
+  const focusAdd = id => $(`[data-board="${CSS.escape(id)}"] .add input`)?.focus();
 
   /* ---------- events ---------- */
-  $('#tabs').onclick = e => {
-    const b = e.target.closest('button'); if (!b) return;
-    tab = b.dataset.tab; history.replaceState(null, '', '#' + tab); render();
-  };
-
-  $('#view').addEventListener('click', e => {
+  $('#boards').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     const act = b.dataset.act;
-    if (b.dataset.filter) { taskFilter = b.dataset.filter; return render(); }
-    if (b.dataset.len) {
-      if (timer.running) return;
-      timer.len = timer.left = +b.dataset.len * 60; return render();
-    }
-    if (act === 'toggle') { const t = findTask(b); t.done = !t.done; t.doneOn = t.done ? dayKey() : null; t.updated = now(); }
-    else if (act === 'del') remove(findTask(b));
-    else if (act === 'habit') { const h = findHabit(b), k = b.dataset.day; h.log[k] = { on: !isOn(h, k), t: now() }; }
-    else if (act === 'delhabit') { const h = findHabit(b); if (!confirm(`Delete habit "${h.name}"?`)) return; remove(h); }
-    else if (act === 'newnote') { S.notes.push({ id: uid(), text: '', created: now(), updated: now() }); save(); render(); $('.note textarea')?.focus(); return; }
-    else if (act === 'delnote') { const n = findNote(b); if (n.text && !confirm('Delete this note?')) return; remove(n); }
-    else if (act === 'showdone') { showDone = !showDone; return render(); }
-    else if (act === 'timer') {
-      if (timer.running) { clearInterval(timer.iv); timer.running = false; document.title = 'Life'; }
-      else {
-        timer.area = $('#focusArea').value; timer.running = true; timer.end = now() + timer.left * 1000;
-        timer.iv = setInterval(tick, 500);
-        if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
-      }
-      return render();
-    }
-    else if (act === 'reset') { clearInterval(timer.iv); timer.running = false; timer.left = timer.len; document.title = 'Life'; return render(); }
-    else return;
-    save(); render();
-  });
-
-  $('#view').addEventListener('submit', e => {
-    e.preventDefault();
-    const f = e.target, d = Object.fromEntries(new FormData(f));
-    if (f.dataset.form === 'task' && d.title.trim()) {
-      S.tasks.push({ id: uid(), title: d.title.trim(), area: d.area, due: d.due || null, done: false, created: now(), updated: now() });
-    } else if (f.dataset.form === 'habit' && d.name.trim()) {
-      S.habits.push({ id: uid(), name: d.name.trim(), log: {}, updated: now() });
+    if (act === 'toggle') {
+      const t = taskOf(b); t.done = !t.done; t.doneOn = t.done ? dayKey() : null; t.updated = now();
+    } else if (act === 'del') {
+      remove(taskOf(b));
+    } else if (act === 'newboard') {
+      const list = boards();
+      const board = { id: 'b-' + uid(), name: 'New board', order: (list.at(-1)?.order ?? -1) + 1, updated: now() };
+      S.boards.push(board); save(); render();
+      const input = $(`[data-board="${board.id}"] .board-name`); input.focus(); input.select();
+      return;
+    } else if (act === 'delboard') {
+      const board = boardOf(b);
+      const count = live(S.tasks).filter(t => t.boardId === board.id && !t.done).length;
+      if (!confirm(`Delete "${board.name}"${count ? ` and its ${count} task${count > 1 ? 's' : ''}` : ''}?`)) return;
+      remove(board);
+      S.tasks.filter(t => t.boardId === board.id && !t.deleted).forEach(remove);
+    } else if (act === 'left' || act === 'right') {
+      const list = boards(), i = list.indexOf(boardOf(b)), j = act === 'left' ? i - 1 : i + 1;
+      list.forEach((x, k) => { if (x.order !== k) { x.order = k; x.updated = now(); } }); // normalise first
+      [list[i].order, list[j].order] = [j, i];
+      list[i].updated = list[j].updated = now();
     } else return;
     save(); render();
-    $('#view [name=title], #view [name=name]')?.focus();
   });
 
-  $('#view').addEventListener('input', e => {
-    if (e.target.id === 'focusInput') { S.focus[dayKey()] = { text: e.target.value, t: now() }; save(); }
-    else if (e.target.closest('.note')) { const n = findNote(e.target); n.text = e.target.value; n.updated = now(); save(); }
+  $('#boards').addEventListener('submit', e => {
+    e.preventDefault();
+    const input = e.target.title, title = input.value.trim();
+    const board = boardOf(e.target);
+    if (!title || !board) return;
+    S.tasks.push({ id: uid(), boardId: board.id, title, done: false, doneOn: null, created: now(), updated: now() });
+    save(); render(); focusAdd(board.id);
   });
-  $('#view').addEventListener('change', e => { if (e.target.id === 'focusArea') timer.area = e.target.value; });
+
+  // Editing task text in place
+  $('#boards').addEventListener('input', e => {
+    if (e.target.classList.contains('text')) {
+      const t = taskOf(e.target); t.title = e.target.textContent; t.updated = now(); store();
+    }
+  });
+  $('#boards').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.target.classList.contains('text') || e.target.classList.contains('board-name'))) {
+      e.preventDefault(); e.target.blur();
+    }
+    if (e.key === 'Escape' && e.target.matches('.add input')) { e.target.value = ''; e.target.blur(); }
+  });
+  $('#boards').addEventListener('focusout', e => {
+    if (e.target.classList.contains('text')) {
+      const t = taskOf(e.target);
+      const title = e.target.textContent.replace(/\s+/g, ' ').trim();
+      if (!title) remove(t); else t.title = title;
+      t.updated = now(); save();
+      if (!title) setTimeout(render, 0);
+    } else if (e.target.classList.contains('board-name')) {
+      const board = boardOf(e.target), name = e.target.value.trim();
+      if (name && name !== board.name) { board.name = name; board.updated = now(); save(); }
+      else if (!name) e.target.value = board.name;
+    }
+  });
 
   /* ================= sync (GitHub Gist) ================= */
   let sync = null;
@@ -325,8 +192,8 @@
   const setStatus = (state, err = '') => {
     syncState = state; syncError = err;
     const el = $('#syncStatus');
-    const label = { off: '', syncing: 'syncing…', ok: 'synced', offline: 'offline', error: 'sync error' }[state];
-    el.textContent = label; el.className = 'sync-status' + (state === 'error' ? ' err' : '');
+    el.textContent = { off: '', syncing: 'syncing…', ok: 'synced', offline: 'offline', error: 'sync error' }[state];
+    el.className = 'sync-status' + (state === 'error' ? ' err' : '');
     el.title = err || (sync?.last ? 'Last synced ' + new Date(sync.last).toLocaleString() : '');
     if ($('#menu').open) renderSyncBox();
   };
@@ -337,35 +204,32 @@
       headers: { Authorization: `Bearer ${sync.token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
     });
     if (r.status === 401) throw new Error('GitHub rejected the token. Create a new one and reconnect.');
-    if (r.status === 403 || r.status === 404) throw new Error(`GitHub refused access (${r.status}). Make sure the token has the "gist" permission.`);
+    if (r.status === 404) throw new Error('404');
+    if (r.status === 403) throw new Error('GitHub refused access (403). Make sure the token has the "gist" permission.');
     if (!r.ok) throw new Error(`GitHub error ${r.status}`);
     return r.json();
   };
 
-  // --- merging: newest version of each record wins; deletes are records too ---
-  const newer = (a, b) => (!a ? b : !b ? a : (b.updated || 0) > (a.updated || 0) ? b : a);
-  const mergeMap = (a = {}, b = {}) => { const o = { ...a }; for (const k in b) if (!o[k] || (b[k].t || 0) > (o[k].t || 0)) o[k] = b[k]; return o; };
-  const mergeList = (a = [], b = [], fn = newer) => {
+  // --- merging: the newest version of each record wins; deletes are records too ---
+  const newer = (a, b) => ((b.updated || 0) > (a.updated || 0) ? b : a);
+  const mergeList = (a = [], b = []) => {
     const m = new Map(a.map(x => [x.id, x]));
-    for (const x of b) m.set(x.id, m.has(x.id) ? fn(m.get(x.id), x) : x);
+    for (const x of b) m.set(x.id, m.has(x.id) ? newer(m.get(x.id), x) : x);
     return [...m.values()];
   };
-  const mergeHabit = (a, b) => ({ ...newer(a, b), log: mergeMap(a.log, b.log) });
-  const merge = (l, r) => ({
-    ...l,
-    areas: (r.areasUpdated || 0) > (l.areasUpdated || 0) ? r.areas : l.areas,
-    areasUpdated: Math.max(l.areasUpdated || 0, r.areasUpdated || 0),
-    tasks: mergeList(l.tasks, r.tasks),
-    notes: mergeList(l.notes, r.notes),
-    sessions: mergeList(l.sessions, r.sessions),
-    habits: mergeList(l.habits, r.habits, mergeHabit),
-    focus: mergeMap(l.focus, r.focus),
-  });
+  const merge = (l, r) => {
+    const out = { ...r, ...l }; // keeps any older fields (habits, notes…) so nothing is lost
+    for (const k of ['boards', 'tasks', 'notes', 'sessions', 'habits'])
+      if (Array.isArray(l[k]) || Array.isArray(r[k])) out[k] = mergeList(l[k], r[k]);
+    return out;
+  };
   // Forget deleted records after 60 days so the file doesn't grow forever.
   const prune = s => {
     const cutoff = now() - 60 * 864e5;
-    for (const k of ['tasks', 'notes', 'habits', 'sessions']) s[k] = s[k].filter(x => !x.deleted || x.updated > cutoff);
+    for (const k of ['boards', 'tasks']) s[k] = s[k].filter(x => !x.deleted || x.updated > cutoff);
   };
+  const pristine = () => S.tasks.length === 0 && S.boards.length === DEFAULT_BOARDS.length &&
+    S.boards.every((b, i) => b.updated === 0 && b.id === boardIdFor(DEFAULT_BOARDS[i]) && b.name === DEFAULT_BOARDS[i]);
   const payload = () => { const { theme, ...rest } = S; return JSON.stringify(rest); };
 
   async function findOrCreateGist() {
@@ -394,21 +258,26 @@
       if (!sync.gistId) await findOrCreateGist();
       let g;
       try { g = await gh(`/gists/${sync.gistId}`); }
-      catch (e) { if (!/404/.test(e.message)) throw e; sync.gistId = null; await findOrCreateGist(); g = await gh(`/gists/${sync.gistId}`); }
+      catch (e) { if (e.message !== '404') throw e; sync.gistId = null; await findOrCreateGist(); g = await gh(`/gists/${sync.gistId}`); }
       const f = g.files?.[FILE];
       let remoteText = f?.content || '';
       if (f?.truncated) remoteText = await fetch(f.raw_url, { cache: 'no-store' }).then(r => r.text());
       const before = payload();
-      if (remoteText) S = merge(S, migrate(JSON.parse(remoteText)));
+      if (remoteText) {
+        const theme = S.theme, remote = migrate(JSON.parse(remoteText));
+        // A brand-new, untouched device adopts the synced boards instead of adding its default ones.
+        S = pristine() ? remote : migrate(merge(S, remote));
+        S.theme = theme;
+      }
       prune(S); store();
       const after = payload();
-      if (after !== remoteText) {
+      if (after !== remoteText)
         await gh(`/gists/${sync.gistId}`, { method: 'PATCH', body: JSON.stringify({ files: { [FILE]: { content: after } } }) });
-      }
       if (after !== before) softRender();
       sync.last = now(); storeSync(); setStatus('ok');
     } catch (e) {
-      setStatus(navigator.onLine ? 'error' : 'offline', e.message || String(e));
+      const msg = e.message === '404' ? 'Could not find your sync data on GitHub.' : (e.message || String(e));
+      setStatus(navigator.onLine ? 'error' : 'offline', msg);
     } finally {
       syncing = false;
       if (again) { again = false; scheduleSync(300); }
@@ -421,8 +290,8 @@
       box.innerHTML = `
         <p class="muted">Keep every device up to date. Your data is stored in a secret gist on your GitHub account.</p>
         <ol>
-          <li><a href="https://github.com/settings/tokens/new?scopes=gist&description=Life%20dashboard%20sync" target="_blank" rel="noopener">Create a GitHub token</a> with only the <b>gist</b> box ticked. Set "Expiration" to "No expiration" or a long time.</li>
-          <li>Copy it and paste it below. Do the same on every device (you can reuse the same token).</li>
+          <li><a href="https://github.com/settings/tokens/new?scopes=gist&description=Life%20dashboard%20sync" target="_blank" rel="noopener">Create a GitHub token</a> with only the <b>gist</b> box ticked and a long expiration.</li>
+          <li>Paste it below. Do the same on every device (the same token is fine).</li>
         </ol>
         <form class="row" id="syncForm">
           <input id="tokenInput" type="password" placeholder="ghp_…" autocomplete="off" required>
@@ -447,7 +316,7 @@
         </div>`;
       $('#syncNow').onclick = () => runSync();
       $('#syncOff').onclick = () => {
-        if (!confirm('Stop syncing on this device? Your data stays here and in the gist.')) return;
+        if (!confirm('Stop syncing on this device? Your data stays here and on GitHub.')) return;
         sync = null; storeSync(); setStatus('off'); renderSyncBox();
       };
     }
@@ -455,24 +324,8 @@
 
   /* ---------- menu ---------- */
   const menu = $('#menu');
-  const renderAreas = () => {
-    $('#areaList').innerHTML = S.areas.map((a, i) => `
-      <div class="item"><span class="title">${esc(a)}</span><button class="del" data-i="${i}" aria-label="Remove">×</button></div>`).join('');
-  };
-  $('#menuBtn').onclick = () => { renderSyncBox(); renderAreas(); menu.showModal(); };
-  $('#closeMenu').onclick = () => { menu.close(); render(); };
-  $('#areaList').onclick = e => {
-    const i = e.target.dataset.i; if (i == null) return;
-    if (S.areas.length <= 1) return alert('Keep at least one area.');
-    S.areas.splice(+i, 1); S.areasUpdated = now();
-    if (!S.areas.includes(taskFilter)) taskFilter = 'All';
-    save(); renderAreas();
-  };
-  $('#areaForm').onsubmit = e => {
-    e.preventDefault(); const v = $('#areaInput').value.trim();
-    if (v && !S.areas.includes(v)) { S.areas.push(v); S.areasUpdated = now(); save(); renderAreas(); }
-    $('#areaInput').value = '';
-  };
+  $('#menuBtn').onclick = () => { renderSyncBox(); menu.showModal(); };
+  $('#closeMenu').onclick = () => menu.close();
   $('#exportBtn').onclick = () => {
     const blob = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' });
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `life-backup-${dayKey()}.json` });
@@ -485,7 +338,7 @@
       if (!Array.isArray(data.tasks)) throw 0;
       if (!confirm(sync ? 'Add everything from this backup? It will be merged with your synced data.' : 'Replace all data on this device with this backup?')) return;
       const theme = S.theme;
-      S = sync ? merge(S, migrate(data)) : migrate(data);
+      S = sync ? migrate(merge(S, migrate(data))) : migrate(data);
       S.theme = theme; save(); applyTheme(); menu.close(); render();
     } catch { alert('That file is not a valid backup.'); }
     e.target.value = '';
@@ -499,9 +352,9 @@
   });
   window.addEventListener('online', () => scheduleSync(0));
   window.addEventListener('offline', () => sync && setStatus('offline'));
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') scheduleSync(0); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { softRender(); scheduleSync(0); } });
   setInterval(() => { if (document.visibilityState === 'visible') runSync(); }, 60000);
-  setInterval(header, 60000);
+  setInterval(() => { header(); }, 60000);
 
   applyTheme(); render();
   if (sync) runSync();
