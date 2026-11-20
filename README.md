@@ -3,7 +3,10 @@
 Big black & white boards, one for each part of your life. Write your tasks and see everything at once, every day.
 It's an installable web app (PWA) that works offline.
 
-- **Boards**: Study, Work, Personal, Health to start with, each in its own soft neutral colour, on a gray panel. Tap a title to rename it; ○ changes the colour; `+ New board` adds one; ← → reorders; × deletes.
+- **Whiteboard**: boards are cards on a dotted canvas. Drag a card by its title bar or empty space to put it anywhere,
+  resize it from the bottom-right corner, and double-click empty canvas (or press `+ New board`) to make a new card.
+  Positions and sizes sync. On a phone the cards stack in one column.
+- **Cards**: tap a title to rename it; ○ changes the colour; × deletes.
 - **Write straight on a board**: tap anywhere on it and type, like a page. Enter starts a new line.
   Start a line with `[] ` for a task, `- ` for a list item or `# ` for a heading, or tap **Text · Task · List · Heading**
   under the line you're writing. In a task or list, Enter makes the next one; Enter on an empty one turns it back into text.

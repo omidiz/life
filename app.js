@@ -173,13 +173,14 @@
     const items = visibleItems(b.id);
     const open = items.filter(t => isTask(t) && !t.done && t.title).length;
     return `
-      <section class="board" data-board="${esc(b.id)}" data-color="${b.color}" style="--board: var(--c-${b.color})">
+      <section class="board" data-board="${esc(b.id)}" data-color="${b.color}" style="--board: var(--c-${b.color});${canvasMode() && b.x != null
+        ? `left:${b.x}px;top:${b.y}px;width:${b.w || CARD_W}px;height:${b.h || CARD_H}px;z-index:${b.z || 1}` : ''}">
         <div class="board-head">
-          <input class="board-name" value="${esc(b.name)}" dir="auto" aria-label="Board name" maxlength="40">
+          <input class="board-name" value="${esc(b.name)}" size="${Math.max(4, [...b.name].length + 1)}" dir="auto" aria-label="Board name" maxlength="40">
           <div class="board-menu">
             <button class="swatch-btn" data-act="colors" title="Colour" aria-label="Change colour"></button>
-            ${i > 0 ? '<button class="mini" data-act="left" title="Move earlier" aria-label="Move earlier">←</button>' : ''}
-            ${i < n - 1 ? '<button class="mini" data-act="right" title="Move later" aria-label="Move later">→</button>' : ''}
+            ${!canvasMode() && i > 0 ? '<button class="mini" data-act="left" title="Move earlier" aria-label="Move earlier">←</button>' : ''}
+            ${!canvasMode() && i < n - 1 ? '<button class="mini" data-act="right" title="Move later" aria-label="Move later">→</button>' : ''}
             <button class="mini" data-act="delboard" title="Delete board" aria-label="Delete board">×</button>
           </div>
           <span class="board-count">${open || ''}</span>
@@ -195,16 +196,112 @@
   };
 
   let renderPending = false, picking = null, dueEditing = null, quiet = false;
-  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .due-edit input') || !!drag;
+  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .due-edit input') || !!drag || !!cardDrag;
   const render = () => {
     renderPending = false;
     header();
     const list = boards();
     quiet = true; // re-drawing removes the line being edited; that's not the user leaving it
+    const canvas = canvasMode();
+    if (canvas) placeBoards(list);
+    resizeWatch.disconnect();
+    $('#boards').classList.toggle('canvas', canvas);
     $('#boards').innerHTML = list.map((b, i) => boardHTML(b, i, list.length)).join('') +
-      '<button class="new-board" data-act="newboard">+ New board</button>';
+      (canvas ? '' : '<button class="new-board" data-act="newboard">+ New board</button>');
+    if (canvas) { fitCanvas(); document.querySelectorAll('#boards .board').forEach(el => resizeWatch.observe(el)); }
     quiet = false;
   };
+
+  /* ---------- canvas: cards you can place and resize anywhere ---------- */
+  const WIDE = matchMedia('(min-width: 900px)');
+  const canvasMode = () => WIDE.matches;
+  const PAD = 24, GAP = 24, CARD_W = 340, CARD_H = 320, SNAP = 12;
+  const snap = v => Math.max(PAD, Math.round(v / SNAP) * SNAP);
+  // Boards that have no spot yet get one in a tidy grid below the ones already placed.
+  const placeBoards = list => {
+    const todo = list.filter(b => b.x == null); if (!todo.length) return;
+    const width = Math.max(CARD_W, $('#boards').clientWidth - PAD * 2);
+    const cols = Math.max(1, Math.floor((width + GAP) / (CARD_W + GAP)));
+    const placed = list.filter(b => b.x != null);
+    const top = placed.length ? Math.max(...placed.map(b => b.y + (b.h || CARD_H))) + GAP : PAD;
+    todo.forEach((b, i) => {
+      b.x = PAD + (i % cols) * (CARD_W + GAP); b.y = top + Math.floor(i / cols) * (CARD_H + GAP);
+      b.w = CARD_W; b.h = CARD_H; b.updated = now();
+    });
+    save();
+  };
+  const fitCanvas = () => {
+    const list = boards();
+    $('#boards').style.height = (list.length ? Math.max(...list.map(b => (b.y || 0) + (b.h || CARD_H))) + PAD * 4 : 400) + 'px';
+  };
+  const topZ = () => Math.max(1, ...boards().map(b => b.z || 1)) + 1;
+  // Remember a card's size after it's resized from its corner.
+  let resizeTimer;
+  const resizeWatch = new ResizeObserver(entries => {
+    let changed = false;
+    for (const en of entries) {
+      const el = en.target, b = S.boards.find(x => x.id === el.dataset.board); if (!b || !canvasMode()) continue;
+      const w = Math.round(el.offsetWidth), h = Math.round(el.offsetHeight);
+      if (Math.abs(w - (b.w || CARD_W)) > 2 || Math.abs(h - (b.h || CARD_H)) > 2) { b.w = w; b.h = h; b.updated = now(); changed = true; }
+    }
+    if (changed) { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { save(); fitCanvas(); }, 400); }
+  });
+  const newBoard = (x, y) => {
+    const list = boards();
+    const used = new Set(list.map(b => b.color));
+    const color = COLORS.slice(0, -1).find(c => !used.has(c)) || colorFor(list.length);
+    const board = { id: 'b-' + uid(), name: 'New board', order: (list.at(-1)?.order ?? -1) + 1, color, updated: now() };
+    if (canvasMode() && x != null) {
+      const maxX = Math.max(PAD, $('#boards').clientWidth - CARD_W - PAD); // keep new cards inside the visible canvas
+      Object.assign(board, { x: Math.min(snap(x), maxX), y: snap(y), w: CARD_W, h: CARD_H, z: topZ() });
+    }
+    S.boards.push(board); save(); render();
+    const input = $(`[data-board="${board.id}"] .board-name`);
+    input?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); input?.focus(); input?.select();
+  };
+  // Drag a card by its empty space or title bar. A tap without moving still starts writing.
+  let cardDrag = null, swallowClick = false;
+  $('#boards').addEventListener('pointerdown', e => {
+    if (!canvasMode() || e.button > 0) return;
+    const card = e.target.closest('.board');
+    if (!card || e.target.closest('.item, button, input, .swatches, .due-edit, .typebar, [contenteditable]')) return;
+    const r = card.getBoundingClientRect();
+    if (e.clientX > r.right - 22 && e.clientY > r.bottom - 22) return; // the resize corner
+    const b = boardOf(card);
+    e.preventDefault();
+    cardDrag = { card, b, sx: e.clientX, sy: e.clientY, ox: b.x, oy: b.y, moved: false };
+  });
+  addEventListener('pointermove', e => {
+    if (!cardDrag) return;
+    const { card, b, sx, sy, ox, oy } = cardDrag, dx = e.clientX - sx, dy = e.clientY - sy;
+    if (!cardDrag.moved) {
+      if (Math.hypot(dx, dy) < 5) return;
+      cardDrag.moved = true; document.activeElement?.blur?.();
+      b.z = topZ(); card.style.zIndex = b.z; card.classList.add('lifted'); document.body.classList.add('drag-active');
+    }
+    card.style.left = Math.max(0, ox + dx) + 'px'; card.style.top = Math.max(0, oy + dy) + 'px';
+  });
+  addEventListener('pointerup', e => {
+    if (!cardDrag) return;
+    const { card, b, sx, sy, ox, oy, moved } = cardDrag; cardDrag = null;
+    if (!moved) return;
+    card.classList.remove('lifted'); document.body.classList.remove('drag-active');
+    b.x = snap(ox + e.clientX - sx); b.y = snap(oy + e.clientY - sy); b.updated = now();
+    card.style.left = b.x + 'px'; card.style.top = b.y + 'px';
+    save(); fitCanvas(); swallowClick = true; setTimeout(() => { swallowClick = false; }, 50);
+  });
+  // Double-click empty canvas to make a card there.
+  $('#boards').addEventListener('dblclick', e => {
+    if (!canvasMode() || e.target !== $('#boards')) return;
+    const r = $('#boards').getBoundingClientRect();
+    newBoard(e.clientX - r.left - 40, e.clientY - r.top - 24);
+  });
+  $('#newBoardBtn').onclick = () => {
+    const list = boards();
+    const bottom = list.length ? Math.max(...list.map(b => (b.y || 0) + (b.h || CARD_H))) + GAP : PAD;
+    newBoard(PAD, bottom);
+  };
+  WIDE.addEventListener('change', () => render());
   // Never yank the text out from under the user when synced data arrives.
   const softRender = () => (editing() ? (renderPending = true) : render());
   $('#boards').addEventListener('focusout', () => setTimeout(() => { if (renderPending && !editing()) render(); }, 0));
@@ -244,6 +341,7 @@
   $('#boards').addEventListener('pointerdown', e => { if (e.target.closest('.typebar')) e.preventDefault(); });
 
   $('#boards').addEventListener('click', e => {
+    if (swallowClick) return;
     const b = e.target.closest('button');
     if (!b) {
       // A tap on the board's empty space starts a new line at the end.
@@ -265,13 +363,7 @@
     } else if (act === 'cleardue') {
       const t = taskOf(b); t.due = null; t.updated = now(); dueEditing = null;
     } else if (act === 'newboard') {
-      const list = boards();
-      const used = new Set(list.map(x => x.color));
-      const color = COLORS.slice(0, -1).find(c => !used.has(c)) || colorFor(list.length);
-      const board = { id: 'b-' + uid(), name: 'New board', order: (list.at(-1)?.order ?? -1) + 1, color, updated: now() };
-      S.boards.push(board); save(); render();
-      const input = $(`[data-board="${board.id}"] .board-name`); input.focus(); input.select();
-      return;
+      return newBoard();
     } else if (act === 'colors') {
       const id = boardOf(b).id; picking = picking === id ? null : id; return render();
     } else if (act === 'color') {
@@ -302,7 +394,9 @@
 
   // Writing in place
   $('#boards').addEventListener('input', e => {
-    const el = e.target; if (!el.classList.contains('text')) return;
+    const el = e.target;
+    if (el.classList.contains('board-name')) { el.size = Math.max(4, [...el.value].length + 1); return; }
+    if (!el.classList.contains('text')) return;
     const t = taskOf(el);
     t.title = el.textContent; t.updated = now();
     const hit = typeOf(t) === 'note' && SHORTCUTS.find(([re]) => re.test(t.title));
