@@ -64,8 +64,42 @@
     const today = dayKey();
     return live(S.tasks)
       .filter(t => t.boardId === boardId && (!t.done || t.doneOn === today))
-      .sort((a, b) => a.done - b.done || a.created - b.created);
+      .sort((a, b) => a.done - b.done || dueTime(a) - dueTime(b) || a.created - b.created);
   };
+
+  /* ---------- deadlines ---------- */
+  // t.due is 'YYYY-MM-DD' (whole day) or 'YYYY-MM-DDTHH:MM' (exact time), or null.
+  const dueDate = due => due.length > 10 ? new Date(due) : new Date(due + 'T23:59:59');
+  const dueTime = t => (t.due ? dueDate(t.due).getTime() : Infinity);
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const dueInfo = t => {
+    if (!t.due) return null;
+    const hasTime = t.due.length > 10, d = dueDate(t.due);
+    const dayDiff = Math.round((new Date(t.due.slice(0, 10) + 'T00:00') - new Date(dayKey() + 'T00:00')) / 864e5);
+    const when = (Math.abs(dayDiff) < 7
+      ? (dayDiff === 0 ? 'Today' : dayDiff === 1 ? 'Tomorrow' : dayDiff === -1 ? 'Yesterday' : d.toLocaleDateString(undefined, { weekday: 'short' }))
+      : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(d.getFullYear() !== new Date().getFullYear() && { year: 'numeric' }) }))
+      + (hasTime ? ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '');
+    if (t.done) return { when, left: '', level: 'done' };
+    let left, level;
+    const ms = d - now();
+    if (hasTime && Math.abs(dayDiff) <= 1) {
+      const mins = Math.round(Math.abs(ms) / 60000), h = Math.floor(mins / 60);
+      const span = h >= 1 ? `${h} h${mins % 60 && h < 10 ? ' ' + (mins % 60) + ' min' : ''}` : `${mins} min`;
+      left = ms < 0 ? `${span} late` : `${span} left`;
+      level = ms < 0 ? 'late' : ms < 864e5 ? 'soon' : 'later';
+    } else if (dayDiff < 0) { left = `${plural(-dayDiff, 'day')} late`; level = 'late'; }
+    else if (dayDiff === 0) return hasTime && ms < 0 ? { when, left: 'late', level: 'late' } : { when: '', left: 'Due today', level: 'soon' };
+    else if (dayDiff === 1) { left = '1 day left'; level = 'soon'; }
+    else if (dayDiff < 14) { left = `${dayDiff} days left`; level = 'later'; }
+    else { const w = Math.round(dayDiff / 7); left = dayDiff < 60 ? `${plural(w, 'week')} left` : `${plural(Math.round(dayDiff / 30), 'month')} left`; level = 'later'; }
+    return { when, left, level };
+  };
+  const clockIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+  const dueFields = (due, prefix = '') => `
+    <input type="date" name="${prefix}date" value="${due ? due.slice(0, 10) : ''}" aria-label="Deadline date">
+    <input type="time" name="${prefix}time" value="${due && due.length > 10 ? due.slice(11, 16) : ''}" aria-label="Deadline time (optional)">`;
+  const readDue = (date, time) => (date ? date + (time ? 'T' + time : '') : null);
 
   const header = () => {
     $('#date').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
@@ -73,7 +107,10 @@
     const tasks = live(S.tasks).filter(t => ids.has(t.boardId));
     const open = tasks.filter(t => !t.done).length;
     const doneToday = tasks.filter(t => t.doneOn === dayKey()).length;
-    $('#summary').textContent = `${open} to do` + (doneToday ? ` · ${doneToday} done today` : '');
+    const late = tasks.filter(t => dueInfo(t)?.level === 'late').length;
+    const today = tasks.filter(t => !t.done && t.due && t.due.slice(0, 10) === dayKey() && dueInfo(t).level !== 'late').length;
+    $('#summary').textContent = `${open} to do` + (today ? ` · ${today} due today` : '') + (late ? ` · ${late} late` : '') +
+      (doneToday ? ` · ${doneToday} done today` : '');
   };
 
   const boardHTML = (b, i, n) => {
@@ -98,18 +135,30 @@
           ${tasks.map(t => `
             <li class="task ${t.done ? 'done' : ''}" data-id="${t.id}">
               <button class="check" data-act="toggle" aria-label="${t.done ? 'Mark not done' : 'Mark done'}">${t.done ? '✓' : ''}</button>
-              <span class="text" contenteditable="plaintext-only" dir="auto" spellcheck="false">${esc(t.title)}</span>
+              <div class="body">
+                <span class="text" contenteditable="plaintext-only" dir="auto" spellcheck="false">${esc(t.title)}</span>
+                ${(info => info ? `<button class="due ${info.level}" data-act="editdue">${[esc(info.when), info.left && `<b>${info.left}</b>`].filter(Boolean).join(' · ')}</button>` : '')(dueInfo(t))}
+                ${dueEditing === t.id ? `<form class="due-edit" data-form="due">${dueFields(t.due)}
+                  <button class="pill" type="submit">Save</button>
+                  ${t.due ? '<button class="pill ghost" type="button" data-act="cleardue">Remove</button>' : ''}
+                </form>` : ''}
+              </div>
+              <button class="tool" data-act="editdue" title="Deadline" aria-label="Set deadline">${clockIcon}</button>
               <button class="del" data-act="del" aria-label="Delete task">×</button>
             </li>`).join('') || '<li class="empty">Nothing here yet.</li>'}
         </ul>
         <form class="add" data-form="task">
-          <input name="title" placeholder="+ Add a task" autocomplete="off" dir="auto" enterkeyhint="done">
+          <div class="add-row">
+            <input name="title" placeholder="+ Add a task" autocomplete="off" dir="auto" enterkeyhint="done">
+            <button type="button" class="tool ${addDue === b.id ? 'on' : ''}" data-act="adddue" title="Add a deadline" aria-label="Add a deadline">${clockIcon}</button>
+          </div>
+          ${addDue === b.id ? `<div class="due-edit">${dueFields(null)}<span class="muted">optional</span></div>` : ''}
         </form>
       </section>`;
   };
 
-  let renderPending = false, picking = null;
-  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .add input:not(:placeholder-shown)');
+  let renderPending = false, picking = null, dueEditing = null, addDue = null;
+  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .add input:not(:placeholder-shown), #boards .due-edit input');
   const render = () => {
     renderPending = false;
     header();
@@ -134,6 +183,16 @@
       const t = taskOf(b); t.done = !t.done; t.doneOn = t.done ? dayKey() : null; t.updated = now();
     } else if (act === 'del') {
       remove(taskOf(b));
+    } else if (act === 'editdue') {
+      const id = taskOf(b).id; dueEditing = dueEditing === id ? null : id; render();
+      return $(`[data-id="${id}"] .due-edit input`)?.focus();
+    } else if (act === 'cleardue') {
+      const t = taskOf(b); t.due = null; t.updated = now(); dueEditing = null;
+    } else if (act === 'adddue') {
+      const board = boardOf(b), title = $(`[data-board="${CSS.escape(board.id)}"] .add input[name=title]`).value;
+      addDue = addDue === board.id ? null : board.id; render();
+      const input = $(`[data-board="${CSS.escape(board.id)}"] .add input[name=title]`); input.value = title;
+      return addDue ? $(`[data-board="${CSS.escape(board.id)}"] .add input[type=date]`)?.focus() : input.focus();
     } else if (act === 'newboard') {
       const list = boards();
       const used = new Set(list.map(x => x.color));
@@ -163,11 +222,16 @@
 
   $('#boards').addEventListener('submit', e => {
     e.preventDefault();
-    const input = e.target.title, title = input.value.trim();
-    const board = boardOf(e.target);
+    const f = e.target.elements;
+    if (e.target.dataset.form === 'due') {
+      const t = taskOf(e.target); t.due = readDue(f.date.value, f.time.value); t.updated = now();
+      dueEditing = null; save(); return render();
+    }
+    const title = f.title.value.trim(), board = boardOf(e.target);
     if (!title || !board) return;
-    S.tasks.push({ id: uid(), boardId: board.id, title, done: false, doneOn: null, created: now(), updated: now() });
-    save(); render(); focusAdd(board.id);
+    const due = f.date ? readDue(f.date.value, f.time.value) : null;
+    S.tasks.push({ id: uid(), boardId: board.id, title, due, done: false, doneOn: null, created: now(), updated: now() });
+    addDue = null; save(); render(); focusAdd(board.id);
   });
 
   // Editing task text in place
@@ -367,7 +431,7 @@
   window.addEventListener('offline', () => sync && setStatus('offline'));
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { softRender(); scheduleSync(0); } });
   setInterval(() => { if (document.visibilityState === 'visible') runSync(); }, 60000);
-  setInterval(() => { header(); }, 60000);
+  setInterval(() => softRender(), 60000); // keep "time left" fresh
 
   applyTheme(); render();
   if (sync) runSync();

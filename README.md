@@ -6,6 +6,9 @@ It's an installable web app (PWA) that works offline.
 - **Boards**: Study, Work, Personal, Health to start with, each in its own soft neutral colour. Tap a title to rename it; ○ changes the colour; `+ New board` adds one; ← → reorders; × deletes.
 - **Tasks**: type in `+ Add a task` and press Enter. Tap the text to edit it, tap the circle to tick it off.
   Finished tasks stay crossed out until the end of the day, then tidy themselves away.
+- **Deadlines (optional)**: tap the clock next to a task (or next to `+ Add a task`) to pick a date, and a time if you want.
+  The task then shows how long is left: "3 h left", "Due today", "4 days left", "2 days late". Late tasks turn black,
+  tasks due within a day get an outline, and tasks with the nearest deadline move to the top of their board.
 - Light / dark with ◐. Right-to-left text (Persian, Arabic…) lines up on its own.
 
 ## Sync between devices
