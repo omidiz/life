@@ -20,6 +20,7 @@
       <div class="greet" id="greet"></div>
     </div>
     <div class="top-actions">
+      <span class="sync-status" id="syncStatus"></span>
       <button class="icon-btn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">◐</button>
       <button class="icon-btn" id="menuBtn" title="Data" aria-label="Data">⋯</button>
     </div>
@@ -36,10 +37,11 @@
   <main id="view"></main>
 
   <dialog id="menu">
-    <h3>Data</h3>
-    <p class="muted">Everything is saved on this device only. Use export / import to move it between devices.</p>
-    <button class="btn" id="exportBtn">Export backup (.json)</button>
-    <label class="btn">Import backup<input type="file" id="importFile" accept="application/json" hidden></label>
+    <h3>Sync</h3>
+    <div id="syncBox"></div>
+    <h3>Backup</h3>
+    <button class="btn ghost" id="exportBtn">Export backup (.json)</button>
+    <label class="btn ghost">Import backup<input type="file" id="importFile" accept="application/json" hidden></label>
     <h3>Areas</h3>
     <div id="areaList"></div>
     <form id="areaForm" class="row">
