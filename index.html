@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Life</title>
+  <meta name="theme-color" content="#ffffff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Life">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <div class="date" id="date"></div>
+      <div class="greet" id="greet"></div>
+    </div>
+    <div class="top-actions">
+      <button class="icon-btn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+      <button class="icon-btn" id="menuBtn" title="Data" aria-label="Data">⋯</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="today" class="active">Today</button>
+    <button data-tab="tasks">Tasks</button>
+    <button data-tab="habits">Habits</button>
+    <button data-tab="notes">Notes</button>
+    <button data-tab="focus">Focus</button>
+  </nav>
+
+  <main id="view"></main>
+
+  <dialog id="menu">
+    <h3>Data</h3>
+    <p class="muted">Everything is saved on this device only. Use export / import to move it between devices.</p>
+    <button class="btn" id="exportBtn">Export backup (.json)</button>
+    <label class="btn">Import backup<input type="file" id="importFile" accept="application/json" hidden></label>
+    <h3>Areas</h3>
+    <div id="areaList"></div>
+    <form id="areaForm" class="row">
+      <input id="areaInput" placeholder="New area…" maxlength="24">
+      <button class="btn">Add</button>
+    </form>
+    <button class="btn ghost" id="closeMenu">Close</button>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
