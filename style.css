@@ -5,16 +5,19 @@
   --line: #e4e4e4;
   --soft: #f5f5f5;
   --page: #ffffff;
-  --panel: #e6e6e4;
+  --panel: #f6f6f7;
+  --dots: #d6d6db;
+  --ink: #4a4d55;
+  --card-line: rgba(0,0,0,.07);
   --rule: rgba(0,0,0,.07);
   /* neutral board colours */
-  --c-grey: #f7f7f6;
-  --c-sand: #f7f1e6;
-  --c-sage: #edf2eb;
-  --c-mist: #ecf1f6;
-  --c-clay: #f6ebe5;
-  --c-stone: #f1f0eb;
-  --c-lilac: #f1eef5;
+  --c-grey: #eef0f3;
+  --c-sand: #f8efdc;
+  --c-sage: #e3f3df;
+  --c-mist: #e4eef9;
+  --c-clay: #f9e7e1;
+  --c-stone: #f0eee9;
+  --c-lilac: #eee8fb;
   --c-white: #ffffff;
   color-scheme: light;
 }
@@ -25,7 +28,10 @@
   --line: #262626;
   --soft: #161616;
   --page: #0a0a0a;
-  --panel: #161616;
+  --panel: #121212;
+  --dots: #2c2c2e;
+  --ink: #c9cbd1;
+  --card-line: rgba(255,255,255,.07);
   --rule: rgba(255,255,255,.07);
   --c-grey: #2a2a2a;
   --c-sand: #2e2a22;
@@ -236,3 +242,61 @@ dialog input:focus { border-color: var(--fg); }
 /* gray panel behind the boards; the page margins stay white */
 .boards { background: var(--panel); border-radius: 36px; padding: 22px; }
 @media (max-width: 640px) { .boards { border-radius: 28px; padding: 12px; } }
+
+/* ============ whiteboard look ============ */
+.new-btn { font-size: 14px; padding: 7px 14px; border-radius: 20px; background: var(--fg); color: var(--bg); margin-right: 6px; }
+
+/* the dotted canvas */
+.boards {
+  background-color: var(--panel);
+  background-image: radial-gradient(var(--dots) 1.2px, transparent 1.3px);
+  background-size: 24px 24px; background-position: 12px 12px;
+  border-radius: 24px; border: 1px solid var(--card-line);
+}
+.boards.canvas { display: block; position: relative; min-height: 70vh; padding: 0; overflow: auto; }
+
+/* cards */
+.board {
+  border-radius: 14px; padding: 16px 20px 10px;
+  border: 1px solid var(--card-line);
+  box-shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04);
+  min-height: 0;
+}
+.canvas .board {
+  position: absolute; resize: both; overflow: auto;
+  min-width: 220px; min-height: 120px; max-width: 1200px;
+  transition: box-shadow .15s;
+}
+.canvas .board.lifted { box-shadow: 0 14px 40px rgba(0,0,0,.16); cursor: grabbing; }
+.canvas .board-head { cursor: grab; }
+.board-head { margin-bottom: 2px; }
+.board-name { font-size: 18px; font-weight: 650; letter-spacing: -.01em; flex: 0 1 auto; width: auto; max-width: 100%; }
+.board-head::after { content: ''; flex: 1; order: 1; } /* empty, draggable part of the title bar */
+.board-menu { order: 2; } .board-count { order: 3; }
+.items { margin: 6px 0 0; }
+
+/* text: smaller and softer, like notes */
+.text { font-size: 15.5px; line-height: 1.55; color: var(--ink); }
+.note { padding: 3px 0; }
+.note .text { font-size: 15.5px; line-height: 1.6; }
+.heading { padding: 12px 0 2px; }
+.item.heading:first-child { padding-top: 2px; }
+.heading .text { font-size: 15.5px; font-weight: 650; color: var(--fg); letter-spacing: 0; }
+.bullet { padding: 1px 0; }
+.bullet .dot { width: 16px; font-size: 15px; line-height: 1.55; color: var(--ink); }
+.task { padding: 6px 0; }
+.item { gap: 10px; }
+.check { width: 18px; height: 18px; margin-top: 3px; border-width: 1.5px; font-size: 10px; }
+.task.done .text { color: var(--muted); }
+.due { font-size: 12px; margin-top: 2px; }
+.handle { left: -18px; width: 16px; }
+.write-here { min-height: 24px; }
+.empty { font-size: 14px; padding: 4px 0; }
+
+@media (max-width: 899px) {
+  .boards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 14px; }
+  .board { min-width: 0; }
+  .board { min-height: 180px; }
+  .new-btn { display: none; }
+}
+@media (min-width: 900px) { .boards:not(.canvas) { padding: 20px; } }
