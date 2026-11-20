@@ -82,9 +82,10 @@ input { background: transparent; border: none; outline: none; width: 100%; }
 .mini { width: 28px; height: 28px; border-radius: 50%; color: var(--muted); font-size: 15px; }
 .mini:hover { color: var(--fg); background: var(--soft); }
 
-.tasks { list-style: none; margin: 10px 0; flex: 1; }
-.task { display: flex; align-items: flex-start; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--rule); }
-.task:last-child { border-bottom: none; }
+.items { list-style: none; margin: 10px 0; flex: 1; }
+.item { position: relative; display: flex; align-items: flex-start; gap: 14px; padding: 8px 0; }
+.task { padding: 12px 0; }
+.task + .task { border-top: 1px solid var(--rule); }
 .check {
   width: 24px; height: 24px; flex: none; margin-top: 2px;
   border: 1.5px solid var(--fg); border-radius: 50%;
@@ -92,16 +93,56 @@ input { background: transparent; border: none; outline: none; width: 100%; }
 }
 .task.done .check { background: var(--fg); color: var(--bg); }
 .body { flex: 1; min-width: 0; }
-.text { display: block; font-size: 19px; outline: none; word-break: break-word; white-space: pre-wrap; }
+.text { display: block; min-height: 1.45em; font-size: 19px; outline: none; word-break: break-word; white-space: pre-wrap; }
 .task.done .text { color: var(--muted); text-decoration: line-through; }
-.task .del { opacity: 0; color: var(--muted); font-size: 18px; line-height: 1; padding: 2px 4px; }
-.task:hover .del, .task:focus-within .del { opacity: .7; }
-@media (hover: none) { .task .del { opacity: .45; } }
+
+/* paragraphs, headings, lists */
+.note { padding: 10px 0; }
+.note .text { font-size: 17px; line-height: 1.6; }
+.heading { padding: 18px 0 4px; }
+.item.heading:first-child { padding-top: 4px; }
+.heading .text { font-size: 22px; font-weight: 650; letter-spacing: -.015em; }
+.bullet { padding: 4px 0; }
+.bullet .dot { width: 24px; flex: none; text-align: center; font-size: 19px; line-height: 1.45; }
+.text:empty::before { content: 'Type here…'; color: var(--muted); }
+
+.item .del { opacity: 0; color: var(--muted); font-size: 18px; line-height: 1; padding: 2px 4px; }
+.item:hover .del, .item:focus-within .del { opacity: .7; }
+@media (hover: none) { .item .del { opacity: .45; } }
 .empty { color: var(--muted); padding: 10px 0; font-size: 15px; }
 
+/* drag handle sits in the board's left margin */
+.handle {
+  position: absolute; left: -24px; top: 50%; transform: translateY(-50%);
+  width: 20px; height: 30px; display: grid; place-items: center;
+  color: var(--muted); cursor: grab; opacity: 0; touch-action: none;
+}
+.item:hover .handle { opacity: .8; }
+@media (hover: none) { .handle { opacity: .4; left: -20px; } }
+.dragging { opacity: .25; }
+.ghost {
+  position: fixed; left: 0; top: 0; z-index: 100; pointer-events: none; list-style: none;
+  border-radius: 14px; padding-left: 14px; padding-right: 14px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.18); opacity: .95;
+}
+.ghost .handle { opacity: 0; }
+body.drag-active, body.drag-active * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
+
+/* add box */
 .add { border-top: 1px dashed var(--rule); padding-top: 12px; }
-.add input { font-size: 18px; padding: 6px 0; }
-.add input::placeholder { color: var(--muted); }
+.add textarea {
+  flex: 1; min-width: 0; font: inherit; font-size: 18px; line-height: 1.45; padding: 6px 0;
+  background: transparent; border: none; outline: none; resize: none; overflow: hidden; color: inherit;
+}
+.add textarea::placeholder { color: var(--muted); }
+.types { display: none; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+.add:focus-within .types, .add.open .types { display: flex; }
+.type { font-size: 13px; padding: 4px 11px; border-radius: 20px; color: var(--muted); }
+.type:hover { color: var(--fg); }
+.type.on { color: var(--fg); background: var(--rule); font-weight: 600; }
+.add .add-btn { display: none; }
+.add[data-type=note] .add-btn { display: inline-block; }
+.add:not([data-type=task]) .due-toggle { display: none; }
 
 .new-board {
   border: 1.5px dashed var(--line); border-radius: 28px; min-height: 520px;
