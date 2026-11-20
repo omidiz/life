@@ -3,7 +3,7 @@
 Big black & white boards, one for each part of your life. Write your tasks and see everything at once, every day.
 It's an installable web app (PWA) that works offline.
 
-- **Boards**: Study, Work, Personal, Health to start with. Tap a title to rename it; `+ New board` adds one; ← → reorders; × deletes.
+- **Boards**: Study, Work, Personal, Health to start with, each in its own soft neutral colour. Tap a title to rename it; ○ changes the colour; `+ New board` adds one; ← → reorders; × deletes.
 - **Tasks**: type in `+ Add a task` and press Enter. Tap the text to edit it, tap the circle to tick it off.
   Finished tasks stay crossed out until the end of the day, then tidy themselves away.
 - Light / dark with ◐. Right-to-left text (Persian, Arabic…) lines up on its own.

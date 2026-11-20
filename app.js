@@ -16,8 +16,10 @@
   const boardIdFor = name => 'b-' + String(name).trim().toLowerCase().replace(/\s+/g, '-');
 
   const DEFAULT_BOARDS = ['Study', 'Work', 'Personal', 'Health'];
+  const COLORS = ['sand', 'mist', 'clay', 'sage', 'lilac', 'stone', 'grey', 'white'];
+  const colorFor = i => COLORS[i % (COLORS.length - 1)];
   const defaults = () => ({
-    boards: DEFAULT_BOARDS.map((name, i) => ({ id: boardIdFor(name), name, order: i, updated: 0 })),
+    boards: DEFAULT_BOARDS.map((name, i) => ({ id: boardIdFor(name), name, order: i, color: colorFor(i), updated: 0 })),
     tasks: [],   // {id, boardId, title, done, doneOn, created, updated, deleted?}
     theme: null, // per device, never synced
   });
@@ -29,11 +31,12 @@
       const names = raw?.areas?.length ? raw.areas : DEFAULT_BOARDS;
       s.boards = names.map((name, i) => ({ id: boardIdFor(name), name, order: i, updated: raw?.areasUpdated || 0 }));
     }
+    s.boards.forEach((b, i) => { if (!COLORS.includes(b.color)) b.color = colorFor(b.order ?? i); });
     s.tasks.forEach(t => {
       t.updated ??= t.created || 0;
       if (!t.boardId) t.boardId = boardIdFor(t.area || s.boards[0]?.name || 'Tasks');
       if (!s.boards.some(b => b.id === t.boardId)) // task points at a board we don't have: recreate it
-        s.boards.push({ id: t.boardId, name: t.area || 'Tasks', order: s.boards.length, updated: 0 });
+        s.boards.push({ id: t.boardId, name: t.area || 'Tasks', order: s.boards.length, color: colorFor(s.boards.length), updated: 0 });
     });
     return s;
   };
@@ -77,16 +80,20 @@
     const tasks = visibleTasks(b.id);
     const open = tasks.filter(t => !t.done).length;
     return `
-      <section class="board" data-board="${esc(b.id)}">
+      <section class="board" data-board="${esc(b.id)}" data-color="${b.color}" style="--board: var(--c-${b.color})">
         <div class="board-head">
           <input class="board-name" value="${esc(b.name)}" dir="auto" aria-label="Board name" maxlength="40">
-          <span class="board-count">${open || ''}</span>
           <div class="board-menu">
+            <button class="swatch-btn" data-act="colors" title="Colour" aria-label="Change colour"></button>
             ${i > 0 ? '<button class="mini" data-act="left" title="Move earlier" aria-label="Move earlier">←</button>' : ''}
             ${i < n - 1 ? '<button class="mini" data-act="right" title="Move later" aria-label="Move later">→</button>' : ''}
             <button class="mini" data-act="delboard" title="Delete board" aria-label="Delete board">×</button>
           </div>
+          <span class="board-count">${open || ''}</span>
         </div>
+        ${picking === b.id ? `<div class="swatches">${COLORS.map(c => `
+          <button class="swatch ${c === b.color ? 'on' : ''}" data-act="color" data-color="${c}" style="background: var(--c-${c})" title="${c}" aria-label="${c}"></button>`).join('')}
+        </div>` : ''}
         <ul class="tasks">
           ${tasks.map(t => `
             <li class="task ${t.done ? 'done' : ''}" data-id="${t.id}">
@@ -101,7 +108,7 @@
       </section>`;
   };
 
-  let renderPending = false;
+  let renderPending = false, picking = null;
   const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .add input:not(:placeholder-shown)');
   const render = () => {
     renderPending = false;
@@ -129,10 +136,16 @@
       remove(taskOf(b));
     } else if (act === 'newboard') {
       const list = boards();
-      const board = { id: 'b-' + uid(), name: 'New board', order: (list.at(-1)?.order ?? -1) + 1, updated: now() };
+      const used = new Set(list.map(x => x.color));
+      const color = COLORS.slice(0, -1).find(c => !used.has(c)) || colorFor(list.length);
+      const board = { id: 'b-' + uid(), name: 'New board', order: (list.at(-1)?.order ?? -1) + 1, color, updated: now() };
       S.boards.push(board); save(); render();
       const input = $(`[data-board="${board.id}"] .board-name`); input.focus(); input.select();
       return;
+    } else if (act === 'colors') {
+      const id = boardOf(b).id; picking = picking === id ? null : id; return render();
+    } else if (act === 'color') {
+      const board = boardOf(b); board.color = b.dataset.color; board.updated = now(); picking = null;
     } else if (act === 'delboard') {
       const board = boardOf(b);
       const count = live(S.tasks).filter(t => t.boardId === board.id && !t.done).length;
