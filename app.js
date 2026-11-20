@@ -19,7 +19,7 @@
   const COLORS = ['sand', 'mist', 'clay', 'sage', 'lilac', 'stone', 'grey', 'white'];
   const colorFor = i => COLORS[i % (COLORS.length - 1)];
   const defaults = () => ({
-    boards: DEFAULT_BOARDS.map((name, i) => ({ id: boardIdFor(name), name, order: i, color: colorFor(i), updated: 0 })),
+    boards: DEFAULT_BOARDS.map((name, i) => ({ id: boardIdFor(name), name, order: i, color: 'grey', updated: 0 })),
     tasks: [],   // items: {id, boardId, type: task|note|heading|bullet, title, due, done, doneOn, pos, created, updated, deleted?}
     theme: null, // per device, never synced
   });
@@ -45,6 +45,8 @@
 
   let S;
   try { S = migrate(JSON.parse(localStorage.getItem(KEY))); } catch { S = defaults(); }
+  // One-time switch: every board becomes gray (a colour can still be picked per board).
+  if (!S.grayBoards) { S.boards.forEach(b => { if (b.color !== 'grey') { b.color = 'grey'; b.updated = now(); } }); S.grayBoards = true; localStorage.setItem(KEY, JSON.stringify(S)); }
   const store = () => localStorage.setItem(KEY, JSON.stringify(S));
   const save = () => { store(); scheduleSync(); };
 
@@ -52,7 +54,7 @@
   const applyTheme = () => {
     const dark = S.theme ? S.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
     document.documentElement.classList.toggle('dark', dark);
-    $('meta[name=theme-color]').content = dark ? '#1c1c1c' : '#e3e3e1';
+    $('meta[name=theme-color]').content = dark ? '#0a0a0a' : '#ffffff';
   };
   $('#themeBtn').onclick = () => {
     S.theme = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
@@ -261,8 +263,7 @@
       const t = taskOf(b); t.due = null; t.updated = now(); dueEditing = null;
     } else if (act === 'newboard') {
       const list = boards();
-      const used = new Set(list.map(x => x.color));
-      const color = COLORS.slice(0, -1).find(c => !used.has(c)) || colorFor(list.length);
+      const color = 'grey';
       const board = { id: 'b-' + uid(), name: 'New board', order: (list.at(-1)?.order ?? -1) + 1, color, updated: now() };
       S.boards.push(board); save(); render();
       const input = $(`[data-board="${board.id}"] .board-name`); input.focus(); input.select();
