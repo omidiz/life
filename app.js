@@ -52,7 +52,7 @@
   const applyTheme = () => {
     const dark = S.theme ? S.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
     document.documentElement.classList.toggle('dark', dark);
-    $('meta[name=theme-color]').content = dark ? '#0a0a0a' : '#ffffff';
+    $('meta[name=theme-color]').content = dark ? '#1c1c1c' : '#e3e3e1';
   };
   $('#themeBtn').onclick = () => {
     S.theme = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
