@@ -587,5 +587,18 @@
   applyTheme(); render();
   if (sync) runSync();
 
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  // Keep the installed app up to date: check for a new version whenever it's opened,
+  // and reload once when one arrives (unless you're in the middle of typing).
+  if ('serviceWorker' in navigator) {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    }).catch(() => {});
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloaded) return;
+      const go = () => { if (!reloaded && !editing()) { reloaded = true; location.reload(); } };
+      go(); if (!reloaded) document.addEventListener('focusout', () => setTimeout(go, 300));
+    });
+  }
 })();
