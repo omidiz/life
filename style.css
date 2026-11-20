@@ -4,10 +4,10 @@
   --muted: #8a8a8a;
   --line: #e4e4e4;
   --soft: #f5f5f5;
-  --page: #e3e3e1;
+  --page: #ffffff;
   --rule: rgba(0,0,0,.07);
   /* neutral board colours */
-  --c-grey: #f7f7f6;
+  --c-grey: #eeeeec;
   --c-sand: #f7f1e6;
   --c-sage: #edf2eb;
   --c-mist: #ecf1f6;
@@ -23,9 +23,9 @@
   --muted: #777;
   --line: #262626;
   --soft: #161616;
-  --page: #1c1c1c;
+  --page: #0a0a0a;
   --rule: rgba(255,255,255,.07);
-  --c-grey: #2a2a2a;
+  --c-grey: #1e1e1e;
   --c-sand: #2e2a22;
   --c-sage: #242b25;
   --c-mist: #232930;
@@ -224,7 +224,7 @@ dialog input:focus { border-color: var(--fg); }
 .due.later, .due.done { padding-left: 0; padding-right: 0; }
 
 /* on the gray page */
-.new-board { border-color: rgba(0,0,0,.14); }
+.new-board { border-color: var(--line); }
 :root.dark .new-board { border-color: rgba(255,255,255,.12); }
 .new-board:hover { border-color: var(--fg); }
 .board { box-shadow: 0 1px 2px rgba(0,0,0,.04); }
