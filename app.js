@@ -20,7 +20,7 @@
   const colorFor = i => COLORS[i % (COLORS.length - 1)];
   const defaults = () => ({
     boards: DEFAULT_BOARDS.map((name, i) => ({ id: boardIdFor(name), name, order: i, color: colorFor(i), updated: 0 })),
-    tasks: [],   // {id, boardId, title, done, doneOn, created, updated, deleted?}
+    tasks: [],   // items: {id, boardId, type: task|note|heading|bullet, title, due, done, doneOn, pos, created, updated, deleted?}
     theme: null, // per device, never synced
   });
 
@@ -34,6 +34,8 @@
     s.boards.forEach((b, i) => { if (!COLORS.includes(b.color)) b.color = colorFor(b.order ?? i); });
     s.tasks.forEach(t => {
       t.updated ??= t.created || 0;
+      t.type ??= 'task';
+      t.pos ??= t.created || 0;
       if (!t.boardId) t.boardId = boardIdFor(t.area || s.boards[0]?.name || 'Tasks');
       if (!s.boards.some(b => b.id === t.boardId)) // task points at a board we don't have: recreate it
         s.boards.push({ id: t.boardId, name: t.area || 'Tasks', order: s.boards.length, color: colorFor(s.boards.length), updated: 0 });
@@ -59,21 +61,22 @@
 
   /* ---------- render ---------- */
   const boards = () => live(S.boards).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
-  // Finished tasks stay visible (crossed out) for the rest of the day, then tidy themselves away.
-  const visibleTasks = boardId => {
+  const isTask = t => (t.type || 'task') === 'task';
+  // Items keep the order you give them. Finished tasks stay crossed out for the rest of the day, then tidy away.
+  const visibleItems = boardId => {
     const today = dayKey();
     return live(S.tasks)
-      .filter(t => t.boardId === boardId && (!t.done || t.doneOn === today))
-      .sort((a, b) => a.done - b.done || dueTime(a) - dueTime(b) || a.created - b.created);
+      .filter(t => t.boardId === boardId && (!isTask(t) || !t.done || t.doneOn === today))
+      .sort((a, b) => a.pos - b.pos || a.created - b.created);
   };
+  const nextPos = boardId => Math.max(-1, ...S.tasks.filter(t => t.boardId === boardId).map(t => t.pos)) + 1;
 
   /* ---------- deadlines ---------- */
   // t.due is 'YYYY-MM-DD' (whole day) or 'YYYY-MM-DDTHH:MM' (exact time), or null.
   const dueDate = due => due.length > 10 ? new Date(due) : new Date(due + 'T23:59:59');
-  const dueTime = t => (t.due ? dueDate(t.due).getTime() : Infinity);
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const dueInfo = t => {
-    if (!t.due) return null;
+    if (!t.due || !isTask(t)) return null;
     const hasTime = t.due.length > 10, d = dueDate(t.due);
     const dayDiff = Math.round((new Date(t.due.slice(0, 10) + 'T00:00') - new Date(dayKey() + 'T00:00')) / 864e5);
     const when = (Math.abs(dayDiff) < 7
@@ -96,15 +99,27 @@
     return { when, left, level };
   };
   const clockIcon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
-  const dueFields = (due, prefix = '') => `
-    <input type="date" name="${prefix}date" value="${due ? due.slice(0, 10) : ''}" aria-label="Deadline date">
-    <input type="time" name="${prefix}time" value="${due && due.length > 10 ? due.slice(11, 16) : ''}" aria-label="Deadline time (optional)">`;
+  const gripIcon = '<svg viewBox="0 0 10 16" width="10" height="16" fill="currentColor"><circle cx="2" cy="3" r="1.4"/><circle cx="8" cy="3" r="1.4"/><circle cx="2" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="2" cy="13" r="1.4"/><circle cx="8" cy="13" r="1.4"/></svg>';
+  const dueFields = due => `
+    <input type="date" name="date" value="${due ? due.slice(0, 10) : ''}" aria-label="Deadline date">
+    <input type="time" name="time" value="${due && due.length > 10 ? due.slice(11, 16) : ''}" aria-label="Deadline time (optional)">`;
   const readDue = (date, time) => (date ? date + (time ? 'T' + time : '') : null);
+
+  /* ---------- item types ---------- */
+  const TYPES = {
+    task:    { label: 'Task',    placeholder: '+ Add a task' },
+    note:    { label: 'Note',    placeholder: '+ Write a note…' },
+    heading: { label: 'Heading', placeholder: '+ Add a heading' },
+    bullet:  { label: 'List',    placeholder: '+ Add a list item' },
+  };
+  let addTypes = {};
+  try { addTypes = JSON.parse(localStorage.getItem('life-addtypes')) || {}; } catch {}
+  const addTypeOf = id => (TYPES[addTypes[id]] ? addTypes[id] : 'task');
 
   const header = () => {
     $('#date').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
     const ids = new Set(boards().map(b => b.id));
-    const tasks = live(S.tasks).filter(t => ids.has(t.boardId));
+    const tasks = live(S.tasks).filter(t => isTask(t) && ids.has(t.boardId));
     const open = tasks.filter(t => !t.done).length;
     const doneToday = tasks.filter(t => t.doneOn === dayKey()).length;
     const late = tasks.filter(t => dueInfo(t)?.level === 'late').length;
@@ -113,9 +128,38 @@
       (doneToday ? ` · ${doneToday} done today` : '');
   };
 
+  const itemHTML = t => {
+    const type = TYPES[t.type] ? t.type : 'task';
+    const handle = `<span class="handle" title="Drag to move" aria-hidden="true">${gripIcon}</span>`;
+    const text = `<div class="text" contenteditable="plaintext-only" dir="auto" spellcheck="false">${esc(t.title)}</div>`;
+    const del = `<button class="del" data-act="del" aria-label="Delete">×</button>`;
+    if (type !== 'task') return `
+      <li class="item ${type}" data-id="${t.id}">
+        ${handle}${type === 'bullet' ? '<span class="dot">•</span>' : ''}
+        <div class="body">${text}</div>${del}
+      </li>`;
+    const info = dueInfo(t);
+    return `
+      <li class="item task ${t.done ? 'done' : ''}" data-id="${t.id}">
+        ${handle}
+        <button class="check" data-act="toggle" aria-label="${t.done ? 'Mark not done' : 'Mark done'}">${t.done ? '✓' : ''}</button>
+        <div class="body">
+          ${text}
+          ${info ? `<button class="due ${info.level}" data-act="editdue">${[esc(info.when), info.left && `<b>${info.left}</b>`].filter(Boolean).join(' · ')}</button>` : ''}
+          ${dueEditing === t.id ? `<form class="due-edit" data-form="due">${dueFields(t.due)}
+            <button class="pill" type="submit">Save</button>
+            ${t.due ? '<button class="pill ghost" type="button" data-act="cleardue">Remove</button>' : ''}
+          </form>` : ''}
+        </div>
+        <button class="tool" data-act="editdue" title="Deadline" aria-label="Set deadline">${clockIcon}</button>
+        ${del}
+      </li>`;
+  };
+
   const boardHTML = (b, i, n) => {
-    const tasks = visibleTasks(b.id);
-    const open = tasks.filter(t => !t.done).length;
+    const items = visibleItems(b.id);
+    const open = items.filter(t => isTask(t) && !t.done).length;
+    const type = addTypeOf(b.id);
     return `
       <section class="board" data-board="${esc(b.id)}" data-color="${b.color}" style="--board: var(--c-${b.color})">
         <div class="board-head">
@@ -131,26 +175,17 @@
         ${picking === b.id ? `<div class="swatches">${COLORS.map(c => `
           <button class="swatch ${c === b.color ? 'on' : ''}" data-act="color" data-color="${c}" style="background: var(--c-${c})" title="${c}" aria-label="${c}"></button>`).join('')}
         </div>` : ''}
-        <ul class="tasks">
-          ${tasks.map(t => `
-            <li class="task ${t.done ? 'done' : ''}" data-id="${t.id}">
-              <button class="check" data-act="toggle" aria-label="${t.done ? 'Mark not done' : 'Mark done'}">${t.done ? '✓' : ''}</button>
-              <div class="body">
-                <span class="text" contenteditable="plaintext-only" dir="auto" spellcheck="false">${esc(t.title)}</span>
-                ${(info => info ? `<button class="due ${info.level}" data-act="editdue">${[esc(info.when), info.left && `<b>${info.left}</b>`].filter(Boolean).join(' · ')}</button>` : '')(dueInfo(t))}
-                ${dueEditing === t.id ? `<form class="due-edit" data-form="due">${dueFields(t.due)}
-                  <button class="pill" type="submit">Save</button>
-                  ${t.due ? '<button class="pill ghost" type="button" data-act="cleardue">Remove</button>' : ''}
-                </form>` : ''}
-              </div>
-              <button class="tool" data-act="editdue" title="Deadline" aria-label="Set deadline">${clockIcon}</button>
-              <button class="del" data-act="del" aria-label="Delete task">×</button>
-            </li>`).join('') || '<li class="empty">Nothing here yet.</li>'}
+        <ul class="items">
+          ${items.map(itemHTML).join('') || '<li class="empty">Nothing here yet.</li>'}
         </ul>
-        <form class="add" data-form="task">
+        <form class="add ${addDue === b.id ? 'open' : ''}" data-form="add" data-type="${type}">
+          <div class="types" role="group" aria-label="What to add">
+            ${Object.entries(TYPES).map(([k, v]) => `<button type="button" class="type ${k === type ? 'on' : ''}" data-act="type" data-type="${k}">${v.label}</button>`).join('')}
+          </div>
           <div class="add-row">
-            <input name="title" placeholder="+ Add a task" autocomplete="off" dir="auto" enterkeyhint="done">
-            <button type="button" class="tool ${addDue === b.id ? 'on' : ''}" data-act="adddue" title="Add a deadline" aria-label="Add a deadline">${clockIcon}</button>
+            <textarea name="title" rows="1" placeholder="${TYPES[type].placeholder}" autocomplete="off" dir="auto" enterkeyhint="${type === 'note' ? 'enter' : 'done'}"></textarea>
+            <button type="button" class="tool due-toggle ${addDue === b.id ? 'on' : ''}" data-act="adddue" title="Add a deadline" aria-label="Add a deadline">${clockIcon}</button>
+            <button type="submit" class="pill add-btn">Add</button>
           </div>
           ${addDue === b.id ? `<div class="due-edit">${dueFields(null)}<span class="muted">optional</span></div>` : ''}
         </form>
@@ -158,7 +193,7 @@
   };
 
   let renderPending = false, picking = null, dueEditing = null, addDue = null;
-  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .add input:not(:placeholder-shown), #boards .due-edit input');
+  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .add textarea:not(:placeholder-shown), #boards .due-edit input') || !!drag;
   const render = () => {
     renderPending = false;
     header();
@@ -173,7 +208,27 @@
   const boardOf = el => S.boards.find(b => b.id === el.closest('[data-board]')?.dataset.board);
   const taskOf = el => S.tasks.find(t => t.id === el.closest('[data-id]')?.dataset.id);
   const remove = x => { x.deleted = true; x.updated = now(); };
-  const focusAdd = id => $(`[data-board="${CSS.escape(id)}"] .add input`)?.focus();
+  const addBox = id => $(`[data-board="${CSS.escape(id)}"] .add textarea`);
+  const focusAdd = id => addBox(id)?.focus();
+  const focusItem = (id, atEnd = true) => {
+    const el = $(`[data-id="${CSS.escape(id)}"] .text`); if (!el) return;
+    el.focus();
+    if (atEnd) { const r = document.createRange(); r.selectNodeContents(el); r.collapse(false); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+  };
+  const grow = ta => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+
+  // Switch the add box between Task / Note / Heading / List without re-rendering (keeps the keyboard open).
+  const setAddType = (form, type) => {
+    const id = boardOf(form).id;
+    addTypes[id] = type; localStorage.setItem('life-addtypes', JSON.stringify(addTypes));
+    form.dataset.type = type;
+    form.querySelectorAll('.type').forEach(b => b.classList.toggle('on', b.dataset.type === type));
+    const ta = form.querySelector('textarea');
+    ta.placeholder = TYPES[type].placeholder;
+    ta.setAttribute('enterkeyhint', type === 'note' ? 'enter' : 'done');
+    if (type !== 'task' && addDue === id) { addDue = null; form.classList.remove('open'); form.querySelector('.due-edit')?.remove(); form.querySelector('.due-toggle').classList.remove('on'); }
+    ta.focus();
+  };
 
   /* ---------- events ---------- */
   $('#boards').addEventListener('click', e => {
@@ -183,16 +238,18 @@
       const t = taskOf(b); t.done = !t.done; t.doneOn = t.done ? dayKey() : null; t.updated = now();
     } else if (act === 'del') {
       remove(taskOf(b));
+    } else if (act === 'type') {
+      return setAddType(b.closest('form'), b.dataset.type);
     } else if (act === 'editdue') {
       const id = taskOf(b).id; dueEditing = dueEditing === id ? null : id; render();
       return $(`[data-id="${id}"] .due-edit input`)?.focus();
     } else if (act === 'cleardue') {
       const t = taskOf(b); t.due = null; t.updated = now(); dueEditing = null;
     } else if (act === 'adddue') {
-      const board = boardOf(b), title = $(`[data-board="${CSS.escape(board.id)}"] .add input[name=title]`).value;
+      const board = boardOf(b), text = addBox(board.id).value;
       addDue = addDue === board.id ? null : board.id; render();
-      const input = $(`[data-board="${CSS.escape(board.id)}"] .add input[name=title]`); input.value = title;
-      return addDue ? $(`[data-board="${CSS.escape(board.id)}"] .add input[type=date]`)?.focus() : input.focus();
+      const ta = addBox(board.id); ta.value = text; grow(ta);
+      return addDue ? $(`[data-board="${CSS.escape(board.id)}"] .add input[type=date]`)?.focus() : ta.focus();
     } else if (act === 'newboard') {
       const list = boards();
       const used = new Set(list.map(x => x.color));
@@ -207,8 +264,8 @@
       const board = boardOf(b); board.color = b.dataset.color; board.updated = now(); picking = null;
     } else if (act === 'delboard') {
       const board = boardOf(b);
-      const count = live(S.tasks).filter(t => t.boardId === board.id && !t.done).length;
-      if (!confirm(`Delete "${board.name}"${count ? ` and its ${count} task${count > 1 ? 's' : ''}` : ''}?`)) return;
+      const count = live(S.tasks).filter(t => t.boardId === board.id && !(isTask(t) && t.done)).length;
+      if (!confirm(`Delete "${board.name}"${count ? ` and everything on it (${count} item${count > 1 ? 's' : ''})` : ''}?`)) return;
       remove(board);
       S.tasks.filter(t => t.boardId === board.id && !t.deleted).forEach(remove);
     } else if (act === 'left' || act === 'right') {
@@ -220,45 +277,127 @@
     save(); render();
   });
 
+  // Quick shortcuts while typing in the add box:  "# " heading · "- " list · "[] " task
+  const SHORTCUTS = [[/^#{1,3}\s+/, 'heading'], [/^[-*•]\s+/, 'bullet'], [/^\[\s?\]\s+/, 'task']];
   $('#boards').addEventListener('submit', e => {
     e.preventDefault();
-    const f = e.target.elements;
-    if (e.target.dataset.form === 'due') {
-      const t = taskOf(e.target); t.due = readDue(f.date.value, f.time.value); t.updated = now();
+    const form = e.target, f = form.elements;
+    if (form.dataset.form === 'due') {
+      const t = taskOf(form); t.due = readDue(f.date.value, f.time.value); t.updated = now();
       dueEditing = null; save(); return render();
     }
-    const title = f.title.value.trim(), board = boardOf(e.target);
-    if (!title || !board) return;
-    const due = f.date ? readDue(f.date.value, f.time.value) : null;
-    S.tasks.push({ id: uid(), boardId: board.id, title, due, done: false, doneOn: null, created: now(), updated: now() });
+    const board = boardOf(form); if (!board) return;
+    let type = addTypeOf(board.id), raw = f.title.value.replace(/\s+$/, '');
+    if (!raw.trim()) return;
+    for (const [re, t] of SHORTCUTS) if (re.test(raw)) { type = t; raw = raw.replace(re, ''); break; }
+    // A note keeps its line breaks; anything else pasted as several lines becomes several items.
+    const lines = type === 'note' ? [raw.trim()] : raw.split('\n').map(l => l.trim()).filter(Boolean);
+    const due = type === 'task' && f.date ? readDue(f.date.value, f.time.value) : null;
+    let pos = nextPos(board.id);
+    for (const title of lines)
+      S.tasks.push({ id: uid(), boardId: board.id, type, title, due, done: false, doneOn: null, pos: pos++, created: now(), updated: now() });
     addDue = null; save(); render(); focusAdd(board.id);
   });
 
-  // Editing task text in place
+  // Editing items in place
   $('#boards').addEventListener('input', e => {
     if (e.target.classList.contains('text')) {
       const t = taskOf(e.target); t.title = e.target.textContent; t.updated = now(); store();
-    }
+    } else if (e.target.matches('.add textarea')) grow(e.target);
   });
+
+  const insertAfter = (t, type) => {
+    const items = visibleItems(t.boardId), next = items[items.indexOf(t) + 1];
+    const pos = next ? (t.pos + next.pos) / 2 : t.pos + 1;
+    const item = { id: uid(), boardId: t.boardId, type, title: '', due: null, done: false, doneOn: null, pos, created: now(), updated: now() };
+    S.tasks.push(item); return item;
+  };
+
   $('#boards').addEventListener('keydown', e => {
-    if (e.key === 'Enter' && (e.target.classList.contains('text') || e.target.classList.contains('board-name'))) {
-      e.preventDefault(); e.target.blur();
+    const el = e.target;
+    if (el.classList.contains('text')) {
+      const t = taskOf(el), type = t.type || 'task';
+      if (e.key === 'Enter' && !e.shiftKey && type !== 'note') {
+        e.preventDefault();
+        const title = el.textContent.trim();
+        if (type === 'heading') return el.blur();
+        if (!title) { remove(t); save(); render(); return focusAdd(t.boardId); } // Enter on an empty line ends the list
+        t.title = title; t.updated = now();
+        const item = insertAfter(t, type); store(); render(); focusItem(item.id);
+      } else if (e.key === 'Backspace' && el.textContent === '' && type !== 'note') {
+        e.preventDefault();
+        const items = visibleItems(t.boardId), prev = items[items.indexOf(t) - 1];
+        remove(t); save(); render(); prev ? focusItem(prev.id) : focusAdd(t.boardId);
+      } else if (e.key === 'Escape') el.blur();
+    } else if (el.classList.contains('board-name') && e.key === 'Enter') {
+      e.preventDefault(); el.blur();
+    } else if (el.matches('.add textarea')) {
+      // a shortcut at the start ("# ", "- ", "[] ") decides the type, even while Note is selected
+      const type = SHORTCUTS.find(([re]) => re.test(el.value))?.[1] || el.closest('form').dataset.type;
+      if (e.key === 'Enter' && !e.shiftKey && (type !== 'note' || e.ctrlKey || e.metaKey)) { e.preventDefault(); el.closest('form').requestSubmit(); }
+      if (e.key === 'Escape') { el.value = ''; grow(el); el.blur(); }
     }
-    if (e.key === 'Escape' && e.target.matches('.add input')) { e.target.value = ''; e.target.blur(); }
   });
   $('#boards').addEventListener('focusout', e => {
     if (e.target.classList.contains('text')) {
-      const t = taskOf(e.target);
-      const title = e.target.textContent.replace(/\s+/g, ' ').trim();
+      const t = taskOf(e.target); if (!t || t.deleted) return;
+      const raw = e.target.textContent;
+      const title = t.type === 'note' ? raw.replace(/^\s+|\s+$/g, '') : raw.replace(/\s+/g, ' ').trim();
       if (!title) remove(t); else t.title = title;
       t.updated = now(); save();
-      if (!title) setTimeout(render, 0);
+      if (!title) setTimeout(() => { if (!editing()) render(); else renderPending = true; }, 0);
     } else if (e.target.classList.contains('board-name')) {
       const board = boardOf(e.target), name = e.target.value.trim();
       if (name && name !== board.name) { board.name = name; board.updated = now(); save(); }
       else if (!name) e.target.value = board.name;
     }
   });
+
+  /* ---------- drag to reorder (and to move between boards) ---------- */
+  let drag = null;
+  $('#boards').addEventListener('pointerdown', e => {
+    const h = e.target.closest('.handle'); if (!h || e.button > 0) return;
+    e.preventDefault();
+    document.activeElement?.blur?.();
+    const li = h.closest('.item'), r = li.getBoundingClientRect();
+    const ghost = li.cloneNode(true);
+    ghost.classList.add('ghost');
+    Object.assign(ghost.style, { width: r.width + 'px', background: getComputedStyle(li.closest('.board')).backgroundColor });
+    document.body.append(ghost);
+    drag = { li, id: li.dataset.id, ghost, dx: e.clientX - r.left, dy: e.clientY - r.top };
+    li.classList.add('dragging'); document.body.classList.add('drag-active');
+    moveDrag(e);
+  });
+  const moveDrag = e => {
+    if (!drag) return;
+    drag.ghost.style.transform = `translate(${e.clientX - drag.dx}px, ${e.clientY - drag.dy}px)`;
+    const list = document.elementFromPoint(e.clientX, e.clientY)?.closest('.board')?.querySelector('.items');
+    if (list) {
+      const others = [...list.querySelectorAll('.item:not(.dragging)')];
+      const before = others.find(o => { const r = o.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
+      if (before) { if (drag.li.nextElementSibling !== before) list.insertBefore(drag.li, before); }
+      else if (list.lastElementChild !== drag.li) list.append(drag.li);
+      list.querySelector('.empty')?.remove();
+    }
+    const edge = 70; // scroll the page when dragging near the top/bottom
+    if (e.clientY < edge) scrollBy(0, -12); else if (e.clientY > innerHeight - edge) scrollBy(0, 12);
+  };
+  addEventListener('pointermove', moveDrag);
+  const endDrag = () => {
+    if (!drag) return;
+    const { li, id, ghost } = drag; drag = null;
+    ghost.remove(); li.classList.remove('dragging'); document.body.classList.remove('drag-active');
+    const t = S.tasks.find(x => x.id === id), boardId = li.closest('[data-board]')?.dataset.board;
+    const posOf = el => el?.classList.contains('item') ? S.tasks.find(x => x.id === el.dataset.id)?.pos : undefined;
+    const a = posOf(li.previousElementSibling), b = posOf(li.nextElementSibling);
+    if (t && boardId) {
+      t.pos = a != null && b != null ? (a + b) / 2 : a != null ? a + 1 : b != null ? b - 1 : 0;
+      t.boardId = boardId; t.updated = now(); save();
+    }
+    render();
+  };
+  addEventListener('pointerup', endDrag);
+  addEventListener('pointercancel', endDrag);
 
   /* ================= sync (GitHub Gist) ================= */
   let sync = null;
