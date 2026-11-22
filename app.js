@@ -62,7 +62,7 @@
   const applyTheme = () => {
     const dark = S.theme ? S.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
     document.documentElement.classList.toggle('dark', dark);
-    $('meta[name=theme-color]').content = '#0a0a0a'; // matches the black navigation bar
+    $('meta[name=theme-color]').content = '#111416'; // matches the black navigation bar
   };
   $('#themeBtn').onclick = () => {
     S.theme = document.documentElement.classList.contains('dark') ? 'light' : 'dark';

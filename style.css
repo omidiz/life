@@ -359,6 +359,12 @@ html { scroll-padding-top: 76px; }
 .board-name { color: var(--fg); }
 .boards { border-color: #e7e9ec; box-shadow: none; }
 
-/* active tab and button in the black bar: very light cool gray instead of white */
-.topbar .page-tab.on { background: #e6e9ee; color: #1f2328; }
-.topbar .new-btn { background: #e6e9ee; color: #1f2328; }
+/* tabs like the reference: soft rounded dark-gray chip with a faint border */
+.topbar { background: #111416; }
+.topbar .page-tab { border-radius: 9px; padding: 8px 16px; border: 1px solid transparent; }
+.topbar .page-tab.on { background: #2a2e31; color: #fff; border-color: #3a3f43; }
+.topbar .page-tab:hover:not(.on) { background: rgba(255,255,255,.06); }
+.topbar .page-tab.add { width: 36px; padding: 8px 0; }
+.topbar input.page-tab { border-radius: 9px; background: #2a2e31; outline: none; border: 1px solid #5a6066; }
+.topbar .new-btn { background: #2a2e31; color: #fff; border: 1px solid #3a3f43; border-radius: 9px; }
+.topbar .new-btn:hover { background: #33383b; }
