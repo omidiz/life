@@ -4,20 +4,20 @@
   --muted: #8a8a8a;
   --line: #e4e4e4;
   --soft: #f5f5f5;
-  --page: #e8e8e6;
+  --page: #f4f5f7;
   --panel: #ffffff;
-  --dots: #d6d6db;
-  --ink: #4a4d55;
+  --dots: #dfe2e6;
+  --ink: #4b5259;
   --card-line: rgba(0,0,0,.07);
   --rule: rgba(0,0,0,.07);
   /* neutral board colours */
-  --c-grey: #eef0f3;
-  --c-sand: #f8efdc;
-  --c-sage: #e3f3df;
-  --c-mist: #e4eef9;
-  --c-clay: #f9e7e1;
-  --c-stone: #f0eee9;
-  --c-lilac: #eee8fb;
+  --c-grey: #edf0f3;
+  --c-sand: #f6f0e3;
+  --c-sage: #e9f1e5;
+  --c-mist: #e8eff7;
+  --c-clay: #f8e9ef;
+  --c-stone: #f1efeb;
+  --c-lilac: #eeeaf7;
   --c-white: #ffffff;
   color-scheme: light;
 }
@@ -352,3 +352,9 @@ html { scroll-padding-top: 76px; }
 .boards { border: 1px solid rgba(0,0,0,.06); border-radius: 24px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
 :root.dark .boards { border-color: rgba(255,255,255,.06); }
 @media (max-width: 640px) { .boards { border-radius: 20px; } }
+
+/* ============ colours from the reference picture ============ */
+:root:not(.dark) { --fg: #2b2f33; --muted: #8b9198; }
+.board { border: 1px solid color-mix(in srgb, var(--board), #1b2a3a 9%); box-shadow: 0 1px 2px rgba(30,40,50,.04); }
+.board-name { color: var(--fg); }
+.boards { border-color: #e7e9ec; box-shadow: none; }

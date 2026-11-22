@@ -16,7 +16,7 @@
   const boardIdFor = name => 'b-' + String(name).trim().toLowerCase().replace(/\s+/g, '-');
 
   const DEFAULT_BOARDS = ['Study', 'Work', 'Personal', 'Health'];
-  const COLORS = ['sand', 'mist', 'clay', 'sage', 'lilac', 'stone', 'grey', 'white'];
+  const COLORS = ['grey', 'sage', 'clay', 'lilac', 'mist', 'sand', 'stone', 'white'];
   const colorFor = i => COLORS[i % (COLORS.length - 1)];
   const defaults = () => ({
     boards: DEFAULT_BOARDS.map((name, i) => ({ id: boardIdFor(name), name, order: i, color: colorFor(i), updated: 0 })),
