@@ -358,3 +358,7 @@ html { scroll-padding-top: 76px; }
 .board { border: 1px solid color-mix(in srgb, var(--board), #1b2a3a 9%); box-shadow: 0 1px 2px rgba(30,40,50,.04); }
 .board-name { color: var(--fg); }
 .boards { border-color: #e7e9ec; box-shadow: none; }
+
+/* active tab and button in the black bar: very light cool gray instead of white */
+.topbar .page-tab.on { background: #e6e9ee; color: #1f2328; }
+.topbar .new-btn { background: #e6e9ee; color: #1f2328; }
