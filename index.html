@@ -14,16 +14,20 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="top">
-    <div>
-      <h1 class="date" id="date"></h1>
-      <div class="summary" id="summary"></div>
-    </div>
+  <nav class="topbar" aria-label="Pages">
+    <div class="pages" id="pages" role="tablist"></div>
     <div class="top-actions">
       <span class="sync-status" id="syncStatus"></span>
       <button class="new-btn" id="newBoardBtn" title="New board">+ New board</button>
       <button class="icon-btn" id="themeBtn" title="Light / dark" aria-label="Toggle theme">◐</button>
       <button class="icon-btn" id="menuBtn" title="Sync &amp; backup" aria-label="Menu">⋯</button>
+    </div>
+  </nav>
+
+  <header class="top">
+    <div>
+      <h1 class="date" id="date"></h1>
+      <div class="summary" id="summary"></div>
     </div>
   </header>
 

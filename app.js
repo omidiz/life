@@ -20,6 +20,7 @@
   const colorFor = i => COLORS[i % (COLORS.length - 1)];
   const defaults = () => ({
     boards: DEFAULT_BOARDS.map((name, i) => ({ id: boardIdFor(name), name, order: i, color: colorFor(i), updated: 0 })),
+    pages: [{ id: 'p-home', name: 'Home', order: 0, updated: 0 }], // fixed id so fresh devices agree
     tasks: [],   // items: {id, boardId, type: task|note|heading|bullet, title, due, done, doneOn, pos, created, updated, deleted?}
     theme: null, // per device, never synced
   });
@@ -32,6 +33,10 @@
       s.boards = names.map((name, i) => ({ id: boardIdFor(name), name, order: i, updated: raw?.areasUpdated || 0 }));
     }
     s.boards.forEach((b, i) => { if (!COLORS.includes(b.color)) b.color = colorFor(b.order ?? i); });
+    if (!Array.isArray(s.pages)) s.pages = [];
+    if (!s.pages.some(p => !p.deleted)) s.pages.push({ id: 'p-home', name: 'Home', order: 0, updated: 0 });
+    const firstPage = s.pages.filter(p => !p.deleted).sort((a, b) => a.order - b.order)[0].id;
+    s.boards.forEach(b => { if (!b.pageId || !s.pages.some(p => p.id === b.pageId && !p.deleted)) b.pageId = firstPage; });
     s.tasks.forEach(t => {
       t.updated ??= t.created || 0;
       t.type ??= 'task';
@@ -65,7 +70,14 @@
   };
 
   /* ---------- render ---------- */
-  const boards = () => live(S.boards).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+  const pages = () => live(S.pages).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+  let page = decodeURIComponent(location.hash.slice(1)) || localStorage.getItem('life-page') || '';
+  const currentPage = () => {
+    if (!pages().some(p => p.id === page)) page = pages()[0].id;
+    return page;
+  };
+  const allBoards = () => live(S.boards).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+  const boards = () => allBoards().filter(b => b.pageId === currentPage());
   const isTask = t => (t.type || 'task') === 'task';
   // Items keep the order you give them. Finished tasks stay crossed out for the rest of the day, then tidy away.
   const visibleItems = boardId => {
@@ -125,6 +137,23 @@
   // Typing one of these at the start of a line turns it into that kind of item.
   const SHORTCUTS = [[/^#{1,3}\s/, 'heading'], [/^[-*•]\s/, 'bullet'], [/^\[\s?\]\s?/, 'task']];
 
+  let renamingPage = null;
+  const renderNav = () => {
+    const cur = currentPage();
+    $('#pages').innerHTML = pages().map(p => p.id === renamingPage
+      ? `<input class="page-tab editing" data-page="${esc(p.id)}" value="${esc(p.name)}" size="${Math.max(4, [...p.name].length + 1)}" maxlength="30" dir="auto" aria-label="Page name">`
+      : `<button class="page-tab ${p.id === cur ? 'on' : ''}" role="tab" aria-selected="${p.id === cur}" data-page="${esc(p.id)}" title="Double-click to rename">
+           <span dir="auto">${esc(p.name)}</span>${p.id === cur && pages().length > 1 ? '<span class="page-del" data-act="delpage" title="Delete page" aria-label="Delete page">×</span>' : ''}
+         </button>`).join('') +
+      '<button class="page-tab add" data-act="addpage" title="New page" aria-label="New page">+</button>';
+    document.title = (pages().find(p => p.id === cur)?.name || 'Life') + ' · Life';
+  };
+  const goTo = id => {
+    page = id; localStorage.setItem('life-page', id);
+    history.replaceState(null, '', '#' + encodeURIComponent(id));
+    picking = moving = null; render(); scrollTo({ top: 0 });
+  };
+
   const header = () => {
     $('#date').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
     const ids = new Set(boards().map(b => b.id));
@@ -181,6 +210,7 @@
             <button class="swatch-btn" data-act="colors" title="Colour" aria-label="Change colour"></button>
             ${!canvasMode() && i > 0 ? '<button class="mini" data-act="left" title="Move earlier" aria-label="Move earlier">←</button>' : ''}
             ${!canvasMode() && i < n - 1 ? '<button class="mini" data-act="right" title="Move later" aria-label="Move later">→</button>' : ''}
+            ${pages().length > 1 ? '<button class="mini" data-act="moving" title="Move to another page" aria-label="Move to another page">⇢</button>' : ''}
             <button class="mini" data-act="delboard" title="Delete board" aria-label="Delete board">×</button>
           </div>
           <span class="board-count">${open || ''}</span>
@@ -188,6 +218,8 @@
         ${picking === b.id ? `<div class="swatches">${COLORS.map(c => `
           <button class="swatch ${c === b.color ? 'on' : ''}" data-act="color" data-color="${c}" style="background: var(--c-${c})" title="${c}" aria-label="${c}"></button>`).join('')}
         </div>` : ''}
+        ${moving === b.id ? `<div class="move-to"><span class="muted">Move to</span>${pages().filter(p => p.id !== b.pageId).map(p =>
+          `<button class="pill ghost" data-act="moveto" data-page="${esc(p.id)}">${esc(p.name)}</button>`).join('')}</div>` : ''}
         <ul class="items">
           ${items.map(itemHTML).join('') || '<li class="empty">Tap anywhere to write.</li>'}
         </ul>
@@ -195,10 +227,12 @@
       </section>`;
   };
 
+  let moving = null;
   let renderPending = false, picking = null, dueEditing = null, quiet = false;
   const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .due-edit input') || !!drag || !!cardDrag;
   const render = () => {
     renderPending = false;
+    renderNav();
     header();
     const list = boards();
     quiet = true; // re-drawing removes the line being edited; that's not the user leaving it
@@ -250,7 +284,7 @@
     const list = boards();
     const used = new Set(list.map(b => b.color));
     const color = COLORS.slice(0, -1).find(c => !used.has(c)) || colorFor(list.length);
-    const board = { id: 'b-' + uid(), name: 'New board', order: (list.at(-1)?.order ?? -1) + 1, color, updated: now() };
+    const board = { id: 'b-' + uid(), pageId: currentPage(), name: 'New board', order: (list.at(-1)?.order ?? -1) + 1, color, updated: now() };
     if (canvasMode() && x != null) {
       const maxX = Math.max(PAD, $('#boards').clientWidth - CARD_W - PAD); // keep new cards inside the visible canvas
       Object.assign(board, { x: Math.min(snap(x), maxX), y: snap(y), w: CARD_W, h: CARD_H, z: topZ() });
@@ -336,6 +370,45 @@
   };
   const setType = (t, type) => { t.type = type; t.updated = now(); store(); redrawAndFocus(t.id); };
 
+  /* ---------- navigation bar: pages ---------- */
+  const startRename = id => {
+    renamingPage = id; renderNav();
+    const input = $(`#pages input[data-page="${CSS.escape(id)}"]`); input.focus(); input.select();
+  };
+  const finishRename = (input, keep = true) => {
+    const p = S.pages.find(x => x.id === input.dataset.page), name = input.value.trim();
+    renamingPage = null;
+    if (keep && p && name && name !== p.name) { p.name = name; p.updated = now(); save(); }
+    renderNav();
+  };
+  $('#pages').addEventListener('click', e => {
+    const el = e.target.closest('[data-act], .page-tab'); if (!el || el.matches('input')) return;
+    if (el.dataset.act === 'addpage') {
+      const p = { id: 'p-' + uid(), name: 'New page', order: (pages().at(-1)?.order ?? -1) + 1, updated: now() };
+      S.pages.push(p); save(); goTo(p.id); return startRename(p.id);
+    }
+    if (el.dataset.act === 'delpage') {
+      e.stopPropagation();
+      const p = S.pages.find(x => x.id === currentPage()), list = boards();
+      if (!confirm(`Delete the page "${p.name}"${list.length ? ` and its ${list.length} board${list.length > 1 ? 's' : ''}` : ''}?`)) return;
+      remove(p);
+      list.forEach(bd => { remove(bd); S.tasks.filter(t => t.boardId === bd.id && !t.deleted).forEach(remove); });
+      save(); return goTo(pages()[0].id);
+    }
+    if (el.dataset.page && el.dataset.page !== currentPage()) goTo(el.dataset.page);
+  });
+  $('#pages').addEventListener('dblclick', e => {
+    const tab = e.target.closest('button.page-tab[data-page]'); if (tab) startRename(tab.dataset.page);
+  });
+  $('#pages').addEventListener('keydown', e => {
+    if (!e.target.matches('input.page-tab')) return;
+    if (e.key === 'Enter') { e.preventDefault(); finishRename(e.target); }
+    if (e.key === 'Escape') finishRename(e.target, false);
+  });
+  $('#pages').addEventListener('input', e => { if (e.target.matches('input.page-tab')) e.target.size = Math.max(4, [...e.target.value].length + 1); });
+  $('#pages').addEventListener('focusout', e => { if (e.target.matches('input.page-tab') && renamingPage) finishRename(e.target); });
+  addEventListener('hashchange', () => { const id = decodeURIComponent(location.hash.slice(1)); if (id && id !== page) goTo(id); });
+
   /* ---------- events ---------- */
   // Keep the cursor in the line when tapping the type bar.
   $('#boards').addEventListener('pointerdown', e => { if (e.target.closest('.typebar')) e.preventDefault(); });
@@ -368,6 +441,10 @@
       const id = boardOf(b).id; picking = picking === id ? null : id; return render();
     } else if (act === 'color') {
       const board = boardOf(b); board.color = b.dataset.color; board.updated = now(); picking = null;
+    } else if (act === 'moving') {
+      const id = boardOf(b).id; moving = moving === id ? null : id; return render();
+    } else if (act === 'moveto') {
+      const board = boardOf(b); board.pageId = b.dataset.page; board.x = board.y = null; board.updated = now(); moving = null;
     } else if (act === 'delboard') {
       const board = boardOf(b);
       const count = live(S.tasks).filter(t => t.boardId === board.id && t.title && !(isTask(t) && t.done)).length;
@@ -467,7 +544,7 @@
     document.activeElement?.blur?.();
     const li = h.closest('.item'), r = li.getBoundingClientRect();
     const ghost = li.cloneNode(true);
-    ghost.classList.add('ghost');
+    ghost.classList.add('drag-ghost');
     Object.assign(ghost.style, { width: r.width + 'px', background: getComputedStyle(li.closest('.board')).backgroundColor });
     document.body.append(ghost);
     drag = { li, id: li.dataset.id, ghost, dx: e.clientX - r.left, dy: e.clientY - r.top };
@@ -541,16 +618,16 @@
   };
   const merge = (l, r) => {
     const out = { ...r, ...l }; // keeps any older fields (habits, notes…) so nothing is lost
-    for (const k of ['boards', 'tasks', 'notes', 'sessions', 'habits'])
+    for (const k of ['pages', 'boards', 'tasks', 'notes', 'sessions', 'habits'])
       if (Array.isArray(l[k]) || Array.isArray(r[k])) out[k] = mergeList(l[k], r[k]);
     return out;
   };
   // Forget deleted records after 60 days so the file doesn't grow forever.
   const prune = s => {
     const cutoff = now() - 60 * 864e5;
-    for (const k of ['boards', 'tasks']) s[k] = s[k].filter(x => !x.deleted || x.updated > cutoff);
+    for (const k of ['pages', 'boards', 'tasks']) s[k] = s[k].filter(x => !x.deleted || x.updated > cutoff);
   };
-  const pristine = () => S.tasks.length === 0 && S.boards.length === DEFAULT_BOARDS.length &&
+  const pristine = () => S.tasks.length === 0 && S.pages.length === 1 && !S.pages[0].updated && S.boards.length === DEFAULT_BOARDS.length &&
     S.boards.every((b, i) => b.updated === 0 && b.id === boardIdFor(DEFAULT_BOARDS[i]) && b.name === DEFAULT_BOARDS[i]);
   const payload = () => { const { theme, ...rest } = S; return JSON.stringify(rest); };
 
