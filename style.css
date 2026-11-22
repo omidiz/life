@@ -386,3 +386,13 @@ html { scroll-padding-top: 76px; }
 .text-size { justify-content: space-between; }
 .text-size .btn { width: auto; flex: 1; margin: 0; font-weight: 600; }
 .text-size span { min-width: 64px; text-align: center; font-weight: 600; }
+
+/* ============ per-line text size (--z) ============ */
+.board .item { font-size: calc(1em * var(--z, 1)); }
+/* checkbox grows with its line; the tick inside stays proportionate */
+.board .check { font-size: .62em; width: 1.87em; height: 1.87em; margin-top: .3em; line-height: 1; }
+.board .item .typebar, .board .item .due { font-size: 12px; }
+.size-btn { display: none; font-weight: 600; }
+@media (hover: none) { .size-btn { display: inline-block; } }
+button { -webkit-tap-highlight-color: transparent; }
+@media (hover: none) { .typebar { gap: 3px; } .typebar .type { padding: 3px 8px; } .size-btn:first-of-type { margin-left: 4px; } }

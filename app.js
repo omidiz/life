@@ -172,16 +172,17 @@
     const text = `<div class="text" contenteditable="plaintext-only" dir="auto" spellcheck="false" data-ph="${esc(TYPES[type].ph)}">${esc(t.title)}</div>`;
     // Small bar under the line you're writing in, to switch what kind of line it is.
     const typebar = `<div class="typebar">${Object.entries(TYPES).map(([k, v]) =>
-      `<button class="type ${k === type ? 'on' : ''}" data-act="settype" data-type="${k}" tabindex="-1">${v.label}</button>`).join('')}</div>`;
+      `<button class="type ${k === type ? 'on' : ''}" data-act="settype" data-type="${k}" tabindex="-1">${v.label}</button>`).join('')}
+      <button class="type size-btn" data-act="tsmaller" tabindex="-1" aria-label="Smaller text">A−</button><button class="type size-btn" data-act="tbigger" tabindex="-1" aria-label="Bigger text">A+</button></div>`;
     const del = `<button class="del" data-act="del" aria-label="Delete">×</button>`;
     if (type !== 'task') return `
-      <li class="item ${type}" data-id="${t.id}">
+      <li class="item ${type}" data-id="${t.id}"${t.size && t.size !== 1 ? ` style="--z:${t.size}"` : ''}>
         ${handle}${type === 'bullet' ? '<span class="dot">•</span>' : ''}
         <div class="body">${text}${typebar}</div>${del}
       </li>`;
     const info = dueInfo(t);
     return `
-      <li class="item task ${t.done ? 'done' : ''}" data-id="${t.id}">
+      <li class="item task ${t.done ? 'done' : ''}" data-id="${t.id}"${t.size && t.size !== 1 ? ` style="--z:${t.size}"` : ''}>
         ${handle}
         <button class="check" data-act="toggle" aria-label="${t.done ? 'Mark not done' : 'Mark done'}">${t.done ? '✓' : ''}</button>
         <div class="body">
@@ -202,13 +203,11 @@
     const items = visibleItems(b.id);
     const open = items.filter(t => isTask(t) && !t.done && t.title).length;
     return `
-      <section class="board" data-board="${esc(b.id)}" data-color="${b.color}" style="--board: var(--c-${b.color});--s:${b.scale || 1};${canvasMode() && b.x != null
+      <section class="board" data-board="${esc(b.id)}" data-color="${b.color}" style="--board: var(--c-${b.color});${canvasMode() && b.x != null
         ? `left:${b.x}px;top:${b.y}px;width:${b.w || CARD_W}px;height:${b.h || CARD_H}px;z-index:${b.z || 1}` : ''}">
         <div class="board-head">
           <input class="board-name" value="${esc(b.name)}" size="${Math.max(4, [...b.name].length + 1)}" dir="auto" aria-label="Board name" maxlength="40">
           <div class="board-menu">
-            <button class="mini aa" data-act="smaller" title="Smaller text" aria-label="Smaller text">A<sup>−</sup></button>
-            <button class="mini aa big" data-act="bigger" title="Bigger text" aria-label="Bigger text">A<sup>+</sup></button>
             <button class="swatch-btn" data-act="colors" title="Colour" aria-label="Change colour"></button>
             ${!canvasMode() && i > 0 ? '<button class="mini" data-act="left" title="Move earlier" aria-label="Move earlier">←</button>' : ''}
             ${!canvasMode() && i < n - 1 ? '<button class="mini" data-act="right" title="Move later" aria-label="Move later">→</button>' : ''}
@@ -249,7 +248,16 @@
   };
 
   /* ---------- text size ---------- */
-  const SIZES = [0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2];
+  const SIZES = [0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5, 3];
+  // Size of one line, changed with Ctrl/⌘ + and Ctrl/⌘ − while the cursor is in it (0 resets).
+  const resizeLine = (li, dir) => {
+    const t = S.tasks.find(x => x.id === li?.dataset.id); if (!t) return;
+    const i = dir === 0 ? SIZES.indexOf(1) : nearestStep(t.size || 1) + dir;
+    if (i < 0 || i >= SIZES.length) return;
+    t.size = SIZES[i]; t.updated = now();
+    li.style.setProperty('--z', t.size); // no re-draw, so the cursor stays put
+    save();
+  };
   const nearestStep = v => SIZES.reduce((best, x, i) => (Math.abs(x - v) < Math.abs(SIZES[best] - v) ? i : best), 0);
   // Whole-app text size for this device (not synced, so phone and laptop can differ).
   let textSize = +localStorage.getItem('life-textsize') || 1;
@@ -460,10 +468,8 @@
       const id = boardOf(b).id; picking = picking === id ? null : id; return render();
     } else if (act === 'color') {
       const board = boardOf(b); board.color = b.dataset.color; board.updated = now(); picking = null;
-    } else if (act === 'smaller' || act === 'bigger') {
-      const board = boardOf(b), i = nearestStep(board.scale || 1) + (act === 'bigger' ? 1 : -1);
-      if (i < 0 || i >= SIZES.length) return;
-      board.scale = SIZES[i]; board.updated = now();
+    } else if (act === 'tsmaller' || act === 'tbigger') {
+      return resizeLine(b.closest('.item'), act === 'tbigger' ? 1 : -1);
     } else if (act === 'moving') {
       const id = boardOf(b).id; moving = moving === id ? null : id; return render();
     } else if (act === 'moveto') {
@@ -518,6 +524,10 @@
 
   $('#boards').addEventListener('keydown', e => {
     const el = e.target;
+    if (el.classList.contains('text') && (e.ctrlKey || e.metaKey) && ['=', '+', '-', '_', '0'].includes(e.key)) {
+      e.preventDefault(); // instead of zooming the whole page
+      return resizeLine(el.closest('.item'), e.key === '0' ? 0 : e.key === '-' || e.key === '_' ? -1 : 1);
+    }
     if (el.classList.contains('text')) {
       const t = taskOf(el), type = typeOf(t), title = el.textContent.trim();
       if (e.key === 'Enter' && !e.shiftKey) {
