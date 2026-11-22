@@ -202,11 +202,13 @@
     const items = visibleItems(b.id);
     const open = items.filter(t => isTask(t) && !t.done && t.title).length;
     return `
-      <section class="board" data-board="${esc(b.id)}" data-color="${b.color}" style="--board: var(--c-${b.color});${canvasMode() && b.x != null
+      <section class="board" data-board="${esc(b.id)}" data-color="${b.color}" style="--board: var(--c-${b.color});--s:${b.scale || 1};${canvasMode() && b.x != null
         ? `left:${b.x}px;top:${b.y}px;width:${b.w || CARD_W}px;height:${b.h || CARD_H}px;z-index:${b.z || 1}` : ''}">
         <div class="board-head">
           <input class="board-name" value="${esc(b.name)}" size="${Math.max(4, [...b.name].length + 1)}" dir="auto" aria-label="Board name" maxlength="40">
           <div class="board-menu">
+            <button class="mini aa" data-act="smaller" title="Smaller text" aria-label="Smaller text">A<sup>−</sup></button>
+            <button class="mini aa big" data-act="bigger" title="Bigger text" aria-label="Bigger text">A<sup>+</sup></button>
             <button class="swatch-btn" data-act="colors" title="Colour" aria-label="Change colour"></button>
             ${!canvasMode() && i > 0 ? '<button class="mini" data-act="left" title="Move earlier" aria-label="Move earlier">←</button>' : ''}
             ${!canvasMode() && i < n - 1 ? '<button class="mini" data-act="right" title="Move later" aria-label="Move later">→</button>' : ''}
@@ -245,6 +247,23 @@
     if (canvas) { fitCanvas(); document.querySelectorAll('#boards .board').forEach(el => resizeWatch.observe(el)); }
     quiet = false;
   };
+
+  /* ---------- text size ---------- */
+  const SIZES = [0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2];
+  const nearestStep = v => SIZES.reduce((best, x, i) => (Math.abs(x - v) < Math.abs(SIZES[best] - v) ? i : best), 0);
+  // Whole-app text size for this device (not synced, so phone and laptop can differ).
+  let textSize = +localStorage.getItem('life-textsize') || 1;
+  const applyTextSize = () => {
+    document.documentElement.style.setProperty('--g', textSize);
+    const label = $('#textSizeLabel'); if (label) label.textContent = Math.round(textSize * 100) + '%';
+  };
+  const changeTextSize = dir => {
+    const i = nearestStep(textSize) + dir; if (i < 0 || i >= SIZES.length) return;
+    textSize = SIZES[i]; localStorage.setItem('life-textsize', textSize); applyTextSize();
+  };
+  $('#textSmaller').onclick = () => changeTextSize(-1);
+  $('#textBigger').onclick = () => changeTextSize(1);
+  applyTextSize();
 
   /* ---------- canvas: cards you can place and resize anywhere ---------- */
   const WIDE = matchMedia('(min-width: 900px)');
@@ -441,6 +460,10 @@
       const id = boardOf(b).id; picking = picking === id ? null : id; return render();
     } else if (act === 'color') {
       const board = boardOf(b); board.color = b.dataset.color; board.updated = now(); picking = null;
+    } else if (act === 'smaller' || act === 'bigger') {
+      const board = boardOf(b), i = nearestStep(board.scale || 1) + (act === 'bigger' ? 1 : -1);
+      if (i < 0 || i >= SIZES.length) return;
+      board.scale = SIZES[i]; board.updated = now();
     } else if (act === 'moving') {
       const id = boardOf(b).id; moving = moving === id ? null : id; return render();
     } else if (act === 'moveto') {

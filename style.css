@@ -368,3 +368,21 @@ html { scroll-padding-top: 76px; }
 .topbar input.page-tab { border-radius: 9px; background: #2a2e31; outline: none; border: 1px solid #5a6066; }
 .topbar .new-btn { background: #2a2e31; color: #fff; border: 1px solid #3a3f43; border-radius: 9px; }
 .topbar .new-btn:hover { background: #33383b; }
+
+/* ============ text size: device-wide (--g) × per card (--s) ============ */
+:root { --base: 15.5px; --g: 1; }
+@media (max-width: 640px) { :root { --base: 17px; } }
+.board .items { font-size: calc(var(--base) * var(--g) * var(--s, 1)); }
+.board .text, .board .note .text, .board .heading .text { font-size: 1em; }
+.board .bullet .dot { font-size: 1em; width: 1.05em; }
+.board .check { width: calc(18px * var(--g) * var(--s, 1)); height: calc(18px * var(--g) * var(--s, 1)); font-size: calc(10px * var(--g) * var(--s, 1)); margin-top: .2em; }
+.board .due { font-size: max(11px, .78em); }
+.board .board-name { font-size: calc(18px * var(--g) * var(--s, 1)); }
+@media (max-width: 640px) { .board .board-name { font-size: calc(22px * var(--g) * var(--s, 1)); } }
+.empty, .text:empty::before { font-size: inherit; }
+.mini.aa { font-size: 13px; font-weight: 600; width: 26px; }
+.mini.aa.big { font-size: 16px; }
+.mini.aa sup { font-size: .6em; margin-left: 1px; }
+.text-size { justify-content: space-between; }
+.text-size .btn { width: auto; flex: 1; margin: 0; font-weight: 600; }
+.text-size span { min-width: 64px; text-align: center; font-weight: 600; }

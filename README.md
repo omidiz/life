@@ -8,7 +8,8 @@ It's an installable web app (PWA) that works offline.
 - **Whiteboard**: boards are cards on a dotted canvas. Drag a card by its title bar or empty space to put it anywhere,
   resize it from the bottom-right corner, and double-click empty canvas (or press `+ New board`) to make a new card.
   Positions and sizes sync. On a phone the cards stack in one column.
-- **Cards**: tap a title to rename it; ○ changes the colour; × deletes.
+- **Cards**: tap a title to rename it; A− / A+ make that card's text smaller or bigger; ○ changes the colour; × deletes.
+- **Text size**: ⋯ → Text size scales all text on this device (it doesn't sync, so phone and laptop can differ).
 - **Write straight on a board**: tap anywhere on it and type, like a page. Enter starts a new line.
   Start a line with `[] ` for a task, `- ` for a list item or `# ` for a heading, or tap **Text · Task · List · Heading**
   under the line you're writing. In a task or list, Enter makes the next one; Enter on an empty one turns it back into text.
