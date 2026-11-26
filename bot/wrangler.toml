@@ -1,0 +1,10 @@
+name = "life-bot"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+[vars]
+TZ = "Asia/Tehran"
+
+# Morning brief at 08:00 Tehran time (04:30 UTC). Remove this block to turn it off.
+[triggers]
+crons = ["30 4 * * *"]

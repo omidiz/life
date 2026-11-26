@@ -45,4 +45,9 @@ Do the same on each device. Your data is stored in a secret gist named `life-das
 
 Without sync, data stays on the device. ⋯ → Export / Import works as a manual backup either way.
 
+## Telegram bot
+
+A private Telegram bot can add tasks, list what's due, tick tasks off and send a morning brief. It uses the same sync gist.
+Set-up is in [bot/README.md](bot/README.md).
+
 Run locally: `python3 -m http.server` and open http://localhost:8000
