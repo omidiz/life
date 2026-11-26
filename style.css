@@ -400,3 +400,25 @@ button { -webkit-tap-highlight-color: transparent; }
 /* bold */
 .text b, .text strong { font-weight: 700; color: var(--fg); }
 .heading .text b { font-weight: 800; }
+
+/* ============ notepad pages ============ */
+.doc-mode #newBoardBtn { display: none; }
+.doc { display: flex; justify-content: center; }
+.doc[hidden] { display: none; }
+.doc-paper {
+  width: 100%; max-width: 820px; min-height: 75vh;
+  background: var(--panel); border: 1px solid #e7e9ec; border-radius: 18px;
+  padding: 56px 64px; cursor: text;
+}
+:root.dark .doc-paper { border-color: rgba(255,255,255,.06); }
+.doc-body {
+  outline: none; min-height: 60vh; white-space: pre-wrap; word-break: break-word; tab-size: 4;
+  font-size: calc(17px * var(--g, 1)); line-height: 1.75; color: var(--fg);
+}
+.doc-body b { font-weight: 700; }
+.doc-body.empty-doc::before { content: attr(data-ph); color: var(--muted); pointer-events: none; position: absolute; }
+.tab-icon { font-size: 12px; opacity: .7; margin-right: -2px; }
+.add-menu { display: inline-flex; gap: 4px; margin-left: 2px; padding-left: 6px; border-left: 1px solid #2d3236; }
+@media (max-width: 640px) { .doc-paper { padding: 28px 22px; border-radius: 16px; min-height: 70vh; } }
+.doc-body { position: relative; }
+.boards[hidden] { display: none !important; }

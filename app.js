@@ -152,6 +152,57 @@
     t.rich = rich.includes('<b>') ? rich : null;
   };
 
+  /* ---------- notepad pages ----------
+     A notepad page keeps one piece of writing. Like lines on boards, it's stored as tiny
+     safe HTML that can only contain escaped text, <b>, <i>, <u> and <br>. */
+  const MARK = { B: 'b', STRONG: 'b', I: 'i', EM: 'i', U: 'u' };
+  const markOf = n => MARK[n.nodeName] || (isBold(n) ? 'b' : /italic/.test(n.style?.fontStyle || '') ? 'i'
+    : /underline/.test(n.style?.textDecorationLine || n.style?.textDecoration || '') ? 'u' : null);
+  const toDoc = node => {
+    let out = '';
+    node.childNodes.forEach(n => {
+      if (n.nodeType === 3) { out += esc(n.nodeValue); return; }
+      if (n.nodeType !== 1) return;
+      if (n.nodeName === 'BR') { out += '<br>'; return; }
+      if (/^(DIV|P|H[1-6]|LI|BLOCKQUOTE)$/.test(n.nodeName) && out && !out.endsWith('<br>')) out += '<br>';
+      const tag = markOf(n), inner = toDoc(n);
+      out += tag && inner ? `<${tag}>${inner}</${tag}>` : inner;
+    });
+    return out;
+  };
+  const showDoc = html => { const tpl = document.createElement('template'); tpl.innerHTML = html || ''; return toDoc(tpl.content); };
+  const docPage = () => S.pages.find(p => p.id === currentPage());
+  const wordCount = () => {
+    const text = $('#docBody').innerText.trim(), n = text ? text.split(/\s+/).length : 0;
+    return `${n} word${n === 1 ? '' : 's'}`;
+  };
+  const renderDoc = () => {
+    const body = $('#docBody'), html = showDoc(docPage().doc);
+    if (document.activeElement !== body && body.innerHTML !== html) body.innerHTML = html;
+    body.classList.toggle('empty-doc', !body.innerText.trim());
+    $('#summary').textContent = wordCount();
+  };
+  let docTimer;
+  $('#docBody').addEventListener('input', () => {
+    const body = $('#docBody');
+    body.classList.toggle('empty-doc', !body.innerText.trim());
+    $('#summary').textContent = wordCount();
+    clearTimeout(docTimer);
+    docTimer = setTimeout(() => { const p = docPage(); p.doc = toDoc(body).replace(/(<br>)+$/, ''); p.updated = now(); save(); }, 400);
+  });
+  $('#docBody').addEventListener('focusout', () => {
+    clearTimeout(docTimer); const p = docPage(), html = toDoc($('#docBody')).replace(/(<br>)+$/, '');
+    if (p && p.doc !== html) { p.doc = html; p.updated = now(); save(); }
+    if (renderPending) setTimeout(() => { if (!editing()) render(); }, 0);
+  });
+  $('#docBody').addEventListener('paste', e => { // plain text only
+    e.preventDefault(); document.execCommand('insertText', false, e.clipboardData?.getData('text/plain') || '');
+  });
+  $('#docBody').addEventListener('keydown', e => {
+    if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
+  });
+  $('#doc').addEventListener('click', e => { if (e.target.id === 'doc' || e.target.classList.contains('doc-paper')) $('#docBody').focus(); });
+
   /* ---------- item types ---------- */
   // 'note' is a plain paragraph of text (shown as "Text").
   const TYPES = {
@@ -164,15 +215,17 @@
   // Typing one of these at the start of a line turns it into that kind of item.
   const SHORTCUTS = [[/^#{1,3}\s/, 'heading'], [/^[-*•]\s/, 'bullet'], [/^\[\s?\]\s?/, 'task']];
 
-  let renamingPage = null;
+  let renamingPage = null, addMenu = false;
   const renderNav = () => {
     const cur = currentPage();
     $('#pages').innerHTML = pages().map(p => p.id === renamingPage
       ? `<input class="page-tab editing" data-page="${esc(p.id)}" value="${esc(p.name)}" size="${Math.max(4, [...p.name].length + 1)}" maxlength="30" dir="auto" aria-label="Page name">`
       : `<button class="page-tab ${p.id === cur ? 'on' : ''}" role="tab" aria-selected="${p.id === cur}" data-page="${esc(p.id)}" title="Double-click to rename">
-           <span dir="auto">${esc(p.name)}</span>${p.id === cur && pages().length > 1 ? '<span class="page-del" data-act="delpage" title="Delete page" aria-label="Delete page">×</span>' : ''}
+           ${p.kind === 'doc' ? '<span class="tab-icon" aria-hidden="true">✎</span>' : ''}<span dir="auto">${esc(p.name)}</span>${p.id === cur && pages().length > 1 ? '<span class="page-del" data-act="delpage" title="Delete page" aria-label="Delete page">×</span>' : ''}
          </button>`).join('') +
-      '<button class="page-tab add" data-act="addpage" title="New page" aria-label="New page">+</button>';
+      '<button class="page-tab add" data-act="addmenu" title="New page" aria-label="New page">+</button>' +
+      (addMenu ? `<span class="add-menu"><button class="page-tab" data-act="addpage" data-kind="boards">▦ Boards</button>
+        <button class="page-tab" data-act="addpage" data-kind="doc">✎ Notepad</button></span>` : '');
     document.title = (pages().find(p => p.id === cur)?.name || 'Life') + ' · Life';
   };
   const goTo = id => {
@@ -183,6 +236,7 @@
 
   const header = () => {
     $('#date').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+    if (isDocPage()) { $('#summary').textContent = wordCount(); return; }
     const ids = new Set(boards().map(b => b.id));
     const tasks = live(S.tasks).filter(t => isTask(t) && t.title && ids.has(t.boardId));
     const open = tasks.filter(t => !t.done).length;
@@ -257,11 +311,16 @@
 
   let moving = null;
   let renderPending = false, picking = null, dueEditing = null, quiet = false;
-  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .due-edit input') || !!drag || !!cardDrag;
+  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .due-edit input, #docBody') || !!drag || !!cardDrag;
+  const isDocPage = () => S.pages.find(p => p.id === currentPage())?.kind === 'doc';
   const render = () => {
     renderPending = false;
     renderNav();
     header();
+    const docPage = isDocPage();
+    document.body.classList.toggle('doc-mode', docPage);
+    $('#doc').hidden = !docPage; $('#boards').hidden = docPage;
+    if (docPage) return renderDoc();
     const list = boards();
     quiet = true; // re-drawing removes the line being edited; that's not the user leaving it
     const canvas = canvasMode();
@@ -437,14 +496,17 @@
   };
   $('#pages').addEventListener('click', e => {
     const el = e.target.closest('[data-act], .page-tab'); if (!el || el.matches('input')) return;
+    if (el.dataset.act === 'addmenu') { addMenu = !addMenu; return renderNav(); }
     if (el.dataset.act === 'addpage') {
-      const p = { id: 'p-' + uid(), name: 'New page', order: (pages().at(-1)?.order ?? -1) + 1, updated: now() };
+      addMenu = false;
+      const doc = el.dataset.kind === 'doc';
+      const p = { id: 'p-' + uid(), name: doc ? 'Notes' : 'New page', order: (pages().at(-1)?.order ?? -1) + 1, updated: now(), ...(doc && { kind: 'doc', doc: '' }) };
       S.pages.push(p); save(); goTo(p.id); return startRename(p.id);
     }
     if (el.dataset.act === 'delpage') {
       e.stopPropagation();
       const p = S.pages.find(x => x.id === currentPage()), list = boards();
-      if (!confirm(`Delete the page "${p.name}"${list.length ? ` and its ${list.length} board${list.length > 1 ? 's' : ''}` : ''}?`)) return;
+      if (!confirm(`Delete the page "${p.name}"${p.kind === 'doc' && p.doc ? ' and everything written on it' : ''}${list.length ? ` and its ${list.length} board${list.length > 1 ? 's' : ''}` : ''}?`)) return;
       remove(p);
       list.forEach(bd => { remove(bd); S.tasks.filter(t => t.boardId === bd.id && !t.deleted).forEach(remove); });
       save(); return goTo(pages()[0].id);

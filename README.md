@@ -4,7 +4,9 @@ Big black & white boards, one for each part of your life. Write your tasks and s
 It's an installable web app (PWA) that works offline.
 
 - **Pages**: the bar at the top switches between pages (e.g. Home, School, Work), each with its own cards.
-  `+` adds a page, double-click a tab to rename it, × on the current tab deletes it. ⇢ on a card moves it to another page.
+  `+` adds a page (Boards or Notepad), double-click a tab to rename it, × on the current tab deletes it. ⇢ on a card moves it to another page.
+- **Notepad pages**: `+` → **Notepad** gives a blank sheet to write anything, like a simple Word page.
+  Ctrl/⌘ B bold, I italic, U underline; it saves as you type, shows a word count, and syncs.
 - **Whiteboard**: boards are cards on a dotted canvas. Drag a card by its title bar or empty space to put it anywhere,
   resize it from the bottom-right corner, and double-click empty canvas (or press `+ New board`) to make a new card.
   Positions and sizes sync. On a phone the cards stack in one column.
