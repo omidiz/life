@@ -194,7 +194,7 @@ export async function think(env, data, { text, image }) {
 // NVIDIA (default), OpenRouter, Groq, Google Gemini, OpenAI, DeepSeek, Mistral…
 // Change AI_URL and AI_MODEL in wrangler.toml and the AI_API_KEY secret to switch.
 async function chat(env, data, history, prompt, image, log) {
-  const url = env.AI_URL || 'https://integrate.api.nvidia.com/v1/chat/completions';
+  const url = aiUrl(env);
   const model = env.AI_MODEL || 'z-ai/glm-5.3-flash';
   const list = tools(data.s, env, log);
   const defs = list.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
@@ -244,10 +244,16 @@ async function post(env, url, body, ms) {
   }
 }
 
+// AI_URL can be the full address or just the base (…/v1), as many services show it.
+function aiUrl(env) {
+  const u = (env.AI_URL || 'https://integrate.api.nvidia.com/v1').trim().replace(/\/+$/, '');
+  return /\/chat\/completions$/.test(u) ? u : u + '/chat/completions';
+}
+
 // For /status: one tiny request, with how long it took or what went wrong.
 export async function checkAI(env) {
   if (!env.AI_API_KEY) return '✗ AI: no AI_API_KEY secret (messages go straight to Inbox)';
-  const url = env.AI_URL || 'https://integrate.api.nvidia.com/v1/chat/completions';
+  const url = aiUrl(env);
   const model = env.AI_MODEL || 'z-ai/glm-5.3-flash';
   const t0 = Date.now();
   try {

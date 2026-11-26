@@ -1,16 +1,17 @@
 name = "life-bot"
 main = "worker.js"
 compatibility_date = "2026-11-01"
+# Keep variables you add in the Cloudflare dashboard when the bot is rebuilt.
+keep_vars = true
+
+# The AI service is set in the Cloudflare dashboard (Settings → Variables and Secrets):
+#   AI_URL, AI_MODEL and AI_API_KEY. Without AI_URL / AI_MODEL, NVIDIA and z-ai/glm-5.3-flash are used.
 
 [vars]
 TZ = "Asia/Tehran"     # your time zone
 LANG = "fa"            # "fa" or "en": the language of briefs, reminders and buttons (chat follows your language)
 MORNING = "08:00"      # morning brief time; "" to turn it off
 EVENING = "21:00"      # evening review time; "" to turn it off
-# The bot's brain: any OpenAI-compatible chat API with tool calling. Put its key in the AI_API_KEY secret.
-# To switch, change these two lines (examples in README.md) and the key.
-AI_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
-AI_MODEL = "z-ai/glm-5.3-flash"
 
 # Checks for reminders and brief times every 5 minutes.
 [triggers]
