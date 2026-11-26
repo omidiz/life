@@ -456,24 +456,22 @@ button { -webkit-tap-highlight-color: transparent; }
 .doc-body > [dir=rtl] { font-family: "Vazirmatn", Tahoma, -apple-system, "Segoe UI", sans-serif; }
 .doc-body > :dir(rtl) { font-family: "Vazirmatn", Tahoma, -apple-system, "Segoe UI", sans-serif; } /* separate rule: older browsers skip only this one */
 
-.sketch { position: relative; margin: 12px 0; display: block; }
-.sketch img { display: block; max-width: 100%; background: #fff; border: 1px solid #e7e9ec; border-radius: 12px; }
-.sketch-tools { position: absolute; top: 8px; inset-inline-end: 8px; display: none; gap: 4px; }
-.sketch:hover .sketch-tools { display: flex; }
-@media (hover: none) { .sketch-tools { display: flex; } }
-.sketch-tools button { font-size: 12.5px; padding: 4px 10px; border-radius: 8px; background: rgba(17,20,22,.85); color: #fff; }
-
-.sketch-dlg { width: min(960px, 96vw); padding: 14px; }
-.sketch-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
-.sketch-top button { font-size: 13px; padding: 6px 10px; border-radius: 8px; color: var(--ink); }
-.sketch-top button.on, .sketch-top button:hover { background: var(--rule); color: var(--fg); }
-.swatch-dot, .size-dot { width: 30px; height: 30px; padding: 0 !important; display: grid; place-items: center; }
-.swatch-dot::before { content: ''; width: 18px; height: 18px; border-radius: 50%; background: var(--c); }
-.swatch-dot.on { box-shadow: inset 0 0 0 2px var(--fg); background: transparent !important; border-radius: 50% !important; }
-.size-dot::before { content: ''; width: var(--d); height: var(--d); border-radius: 50%; background: var(--fg); }
-#sketchCanvas { display: block; width: 100%; height: min(60vh, 520px); background: #fff; border: 1px solid #e7e9ec; border-radius: 12px; touch-action: none; cursor: crosshair; }
-.sketch-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
-.sketch-foot .btn { width: auto; margin: 0; padding: 9px 20px; }
+.sketch { position: relative; margin: 14px 0; display: block; border: 1px solid #e7e9ec; border-radius: 14px; background: #fff; overflow: hidden; }
+:root.dark .sketch { border-color: #2a2e31; }
+.sk-canvas { display: block; width: 100%; height: 320px; touch-action: none; cursor: crosshair; background: #fff; }
+.sk-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 6px 8px;
+  border-bottom: 1px solid #eef0f2; background: #fafbfc; color: #4b5259; font-size: 13px; user-select: none;
+}
+.sk-bar button { padding: 5px 9px; border-radius: 8px; color: #4b5259; font-size: 13px; }
+.sk-bar button:hover, .sk-bar button.on { background: #eceef1; color: #1f2328; }
+.sk-bar .sep { width: 1px; height: 16px; background: #e3e6ea; margin: 0 4px; }
+.sk-dot, .sk-size { width: 28px; height: 28px; padding: 0 !important; display: inline-grid; place-items: center; }
+.sk-dot::before { content: ''; width: 16px; height: 16px; border-radius: 50%; background: var(--c); }
+.sk-dot.on { background: transparent !important; box-shadow: inset 0 0 0 2px #1f2328; border-radius: 50% !important; }
+.sk-size::before { content: ''; width: var(--d); height: var(--d); border-radius: 50%; background: #1f2328; }
+.sk-del { margin-inline-start: auto; font-size: 17px !important; line-height: 1; }
+@media (max-width: 640px) { .sk-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } .sk-bar > * { flex: none; } }
 
 /* board lines follow their own direction too */
 .handle { left: auto; inset-inline-start: -18px; }

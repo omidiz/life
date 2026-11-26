@@ -8,7 +8,7 @@ It's an installable web app (PWA) that works offline.
 - **Notepad pages**: `+` → **Notepad** gives a blank sheet to write anything, like a simple Word page.
   The toolbar (or shortcuts at the start of a line) adds headings (`# `, `## `), bullet lists (`- `), numbered lists (`1. `),
   tasks you can tick (`[] `), quotes (`> `), **bold** / *italic* / underline (Ctrl/⌘ B, I, U) and drawings (✎ Draw: pen, colours,
-  sizes, eraser, undo). It saves as you type, shows a word count, and syncs.
+  sizes, eraser, undo, clear: you draw right on the page). It saves as you type, shows a word count, and syncs.
 - **English and Farsi**: every line picks its own direction, so Farsi runs right-to-left and English left-to-right, with
   checkboxes and bullets on the right side. ⇆ in the notepad toolbar forces a line to RTL or LTR. The header also shows the Persian date.
 - **Whiteboard**: boards are cards on a dotted canvas. Drag a card by its title bar or empty space to put it anywhere,

@@ -183,8 +183,8 @@
     const flush = () => { if (run !== null) { out.push({ t: 'p', html: trimBr(run) }); run = null; } };
     const walk = parent => parent.childNodes.forEach(n => {
       if (n.nodeType === 1 && n.nodeName === 'FIGURE') {
-        flush(); const src = n.querySelector('img')?.getAttribute('src') || '';
-        if (SRC_OK.test(src)) out.push({ t: 'sketch', src }); return;
+        flush(); const src = n.getAttribute('data-src') ?? n.querySelector('img')?.getAttribute('src') ?? '';
+        if (src === '' || SRC_OK.test(src)) out.push({ t: 'sketch', src }); return;
       }
       if (isBlockEl(n)) {
         flush();
@@ -204,7 +204,7 @@
     return out;
   };
   const blockHTML = b => b.t === 'sketch'
-    ? `<figure class="sketch" contenteditable="false"><img src="${b.src}" alt="Drawing" draggable="false"><span class="sketch-tools"><button type="button" data-sk="edit">Edit</button><button type="button" data-sk="del" aria-label="Delete drawing">×</button></span></figure>`
+    ? `<figure class="sketch" contenteditable="false" data-src="${b.src}">${sketchBar()}<canvas class="sk-canvas" aria-label="Drawing area"></canvas></figure>`
     : `<div data-t="${b.t}"${b.c ? ' data-c="1"' : ''} dir="${b.dir || 'auto'}">${b.html || '<br>'}</div>`;
   const parseDoc = html => { const tpl = document.createElement('template'); tpl.innerHTML = html || ''; return readBlocks(tpl.content); };
   const docHTML = blocks => (blocks.length ? blocks : [{ t: 'p' }]).map(blockHTML).join('');
@@ -214,16 +214,17 @@
   const wordCount = () => { const t = blockText(), n = t ? t.split(/\s+/).length : 0; return `${n} word${n === 1 ? '' : 's'}`; };
   const isEmptyDoc = () => !blockText() && !body().querySelector('figure');
   const refreshDocUI = () => { body().classList.toggle('empty-doc', isEmptyDoc()); $('#summary').textContent = wordCount(); };
+  let shownDoc = null;
   const renderDoc = () => {
-    const html = docHTML(parseDoc(docPage().doc));
-    if (document.activeElement !== body() && body().innerHTML !== html) body().innerHTML = html;
-    refreshDocUI();
+    const p = docPage(), key = p.id + '\n' + (p.doc || '');
+    if (document.activeElement !== body() && !pen && key !== shownDoc) { body().innerHTML = docHTML(parseDoc(p.doc)); shownDoc = key; }
+    hydrateSketches(); refreshDocUI();
   };
   let docTimer;
   const saveDoc = (now_ = false) => {
     clearTimeout(docTimer);
     const run = () => { const p = docPage(); if (!p || p.kind !== 'doc') return; const html = readBlocks(body()).map(blockHTML).join('');
-      if (p.doc !== html) { p.doc = html; p.updated = now(); save(); } };
+      if (p.doc !== html) { p.doc = html; p.updated = now(); save(); } shownDoc = p.id + '\n' + html; };
     now_ ? run() : (docTimer = setTimeout(run, 400));
   };
   // The block (direct child of the editor) that holds the cursor.
@@ -297,13 +298,8 @@
   $('#docBody').addEventListener('paste', e => { e.preventDefault(); document.execCommand('insertText', false, e.clipboardData?.getData('text/plain') || ''); });
   // Tick tasks; edit or delete drawings.
   $('#docBody').addEventListener('click', e => {
-    const sk = e.target.closest('[data-sk]');
-    if (sk) {
-      const fig = sk.closest('figure');
-      if (sk.dataset.sk === 'del') { if (confirm('Delete this drawing?')) { fig.remove(); normalize(); saveDoc(true); refreshDocUI(); } }
-      else openSketch(fig);
-      return;
-    }
+    const skBtn = e.target.closest('[data-sk]');
+    if (skBtn) return sketchAction(skBtn);
     const blk = e.target.closest('[data-t=todo]'); if (!blk || blk.parentNode !== body()) return;
     const r = blk.getBoundingClientRect(), rtl = getComputedStyle(blk).direction === 'rtl';
     if (rtl ? e.clientX > r.right - 30 : e.clientX < r.left + 30) {
@@ -318,6 +314,7 @@
   });
   // Toolbar: keep the text selection while clicking it.
   $('#docTools').addEventListener('pointerdown', e => { if (e.target.closest('button')) e.preventDefault(); });
+  $('#docBody').addEventListener('pointerdown', e => { if (e.target.closest('.sk-bar')) e.preventDefault(); });
   $('#docTools').addEventListener('click', e => {
     const btn = e.target.closest('button[data-cmd]'); if (!btn) return;
     const cmd = btn.dataset.cmd;
@@ -329,73 +326,80 @@
       const next = { auto: 'rtl', rtl: 'ltr', ltr: 'auto' }[blocks[0]?.getAttribute('dir') || 'auto'];
       blocks.forEach(b => b.setAttribute('dir', next)); return saveDoc(true);
     }
-    if (cmd === 'draw') return openSketch(null, blocks.at(-1));
+    if (cmd === 'draw') return insertSketch(blocks.at(-1));
   });
 
-  /* ---------- drawing pad ---------- */
-  const sk = { cv: $('#sketchCanvas'), color: '#1f2328', size: 4, erase: false, strokes: [], base: null, fig: null, after: null, cur: null };
-  const skCtx = sk.cv.getContext('2d');
-  const skRedraw = () => {
-    const { width, height } = sk.cv; skCtx.clearRect(0, 0, width, height);
-    skCtx.globalCompositeOperation = 'source-over';
-    if (sk.base) skCtx.drawImage(sk.base, 0, 0, width, height);
-    sk.strokes.forEach(drawStroke);
-  };
-  const drawStroke = s => {
-    const dpr = sk.cv.width / sk.cv.clientWidth;
-    skCtx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over';
-    skCtx.strokeStyle = s.color; skCtx.lineWidth = s.size * dpr; skCtx.lineCap = skCtx.lineJoin = 'round';
-    skCtx.beginPath();
-    s.pts.forEach(([x, y], i) => { x *= dpr; y *= dpr; if (!i) skCtx.moveTo(x, y); else skCtx.lineTo(x, y); });
-    if (s.pts.length === 1) { const [x, y] = s.pts[0]; skCtx.lineTo(x * dpr + .1, y * dpr); }
-    skCtx.stroke();
-  };
-  const openSketch = (fig, after) => {
-    sk.fig = fig; sk.after = after || curBlock(); sk.strokes = []; sk.base = null;
-    const dlg = $('#sketchDlg'); dlg.showModal();
-    const w = sk.cv.clientWidth, h = sk.cv.clientHeight, dpr = Math.min(2, devicePixelRatio || 1);
-    sk.cv.width = Math.round(w * dpr); sk.cv.height = Math.round(h * dpr);
-    const src = fig?.querySelector('img')?.src;
-    if (src) { const img = new Image(); img.onload = () => { sk.base = img; skRedraw(); }; img.src = src; } else skRedraw();
-  };
-  sk.cv.addEventListener('pointerdown', e => {
-    sk.cv.setPointerCapture(e.pointerId);
-    const r = sk.cv.getBoundingClientRect();
-    sk.cur = { color: sk.color, size: sk.erase ? sk.size * 4 : sk.size, erase: sk.erase, pts: [[e.clientX - r.left, e.clientY - r.top]] };
-    sk.strokes.push(sk.cur); drawStroke(sk.cur);
+  /* ---------- drawing right on the page ----------
+     A drawing is a block with a canvas you draw on directly. After each stroke the
+     picture is kept in the block (data-src, a checked data:image URL) and saved. */
+  const PEN_COLORS = [['#1f2328', 'Black'], ['#8b9198', 'Gray'], ['#d64545', 'Red'], ['#2f6fd1', 'Blue'], ['#2f9e5a', 'Green'], ['#e8a317', 'Yellow']];
+  const PEN_SIZES = [[2, 4, 'Thin'], [4, 7, 'Medium'], [9, 12, 'Thick']];
+  const tool = { color: '#1f2328', size: 4, erase: false };
+  const sketchBar = () => `<div class="sk-bar" contenteditable="false">${PEN_COLORS.map(([c, n]) =>
+      `<button type="button" class="sk-dot${!tool.erase && c === tool.color ? ' on' : ''}" data-sk="color" data-v="${c}" style="--c:${c}" aria-label="${n}"></button>`).join('')}
+    <span class="sep"></span>${PEN_SIZES.map(([s, d, n]) =>
+      `<button type="button" class="sk-size${s === tool.size ? ' on' : ''}" data-sk="size" data-v="${s}" style="--d:${d}px" aria-label="${n}"></button>`).join('')}
+    <span class="sep"></span><button type="button" data-sk="erase" class="${tool.erase ? 'on' : ''}">Eraser</button><button type="button" data-sk="undo">Undo</button><button type="button" data-sk="clear">Clear</button>
+    <button type="button" class="sk-del" data-sk="del" aria-label="Delete drawing" title="Delete drawing">×</button></div>`;
+  const syncBars = () => body().querySelectorAll('.sk-bar').forEach(bar => {
+    bar.querySelectorAll('[data-sk=color]').forEach(b => b.classList.toggle('on', !tool.erase && b.dataset.v === tool.color));
+    bar.querySelectorAll('[data-sk=size]').forEach(b => b.classList.toggle('on', +b.dataset.v === tool.size));
+    bar.querySelector('[data-sk=erase]').classList.toggle('on', tool.erase);
   });
-  sk.cv.addEventListener('pointermove', e => {
-    if (!sk.cur) return;
-    const r = sk.cv.getBoundingClientRect(); sk.cur.pts.push([e.clientX - r.left, e.clientY - r.top]);
-    skRedraw();
+  // Size each canvas to its block and paint the saved picture back onto it.
+  const hydrateSketches = (force = false) => body().querySelectorAll('figure.sketch').forEach(fig => {
+    const cv = fig.querySelector('canvas'); const w = cv?.clientWidth; if (!w || (!force && +cv.dataset.w === w)) return;
+    const dpr = Math.min(2, devicePixelRatio || 1), src = fig.dataset.src;
+    const setup = ratio => { const h = Math.round(w * ratio); cv.style.height = h + 'px'; cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.dataset.w = w; };
+    if (src) { const img = new Image(); img.onload = () => { setup(img.naturalHeight / img.naturalWidth); cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height); }; img.src = src; }
+    else setup(innerWidth < 640 ? 0.8 : 0.5);
   });
-  const endStroke = () => { sk.cur = null; };
-  sk.cv.addEventListener('pointerup', endStroke); sk.cv.addEventListener('pointercancel', endStroke);
-  $('#sketchTools').addEventListener('click', e => {
-    const b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.color) { sk.color = b.dataset.color; sk.erase = false; }
-    if (b.dataset.size) sk.size = +b.dataset.size;
-    if (b.dataset.tool === 'erase') sk.erase = !sk.erase;
-    if (b.dataset.tool === 'undo') { sk.strokes.pop(); skRedraw(); }
-    if (b.dataset.tool === 'clear' && confirm('Clear the drawing?')) { sk.strokes = []; sk.base = null; skRedraw(); }
-    $('#sketchTools').querySelectorAll('[data-color]').forEach(x => x.classList.toggle('on', !sk.erase && x.dataset.color === sk.color));
-    $('#sketchTools').querySelectorAll('[data-size]').forEach(x => x.classList.toggle('on', +x.dataset.size === sk.size));
-    $('#sketchTools').querySelector('[data-tool=erase]').classList.toggle('on', sk.erase);
+  let resizeT; addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => isDocPage() && hydrateSketches(true), 200); });
+  const undoStack = new WeakMap(); // figure → earlier pictures, for Undo
+  const paintSrc = (fig, src) => {
+    const cv = fig.querySelector('canvas'), ctx = cv.getContext('2d');
+    ctx.globalCompositeOperation = 'source-over'; ctx.clearRect(0, 0, cv.width, cv.height);
+    fig.dataset.src = src || '';
+    if (src) { const img = new Image(); img.onload = () => ctx.drawImage(img, 0, 0, cv.width, cv.height); img.src = src; }
+    saveDoc(true);
+  };
+  let pen = null;
+  $('#docBody').addEventListener('pointerdown', e => {
+    const cv = e.target.closest('canvas.sk-canvas'); if (!cv || e.button > 0) return;
+    e.preventDefault(); cv.setPointerCapture(e.pointerId);
+    const fig = cv.closest('figure'), ctx = cv.getContext('2d'), r = cv.getBoundingClientRect(), k = cv.width / r.width;
+    (undoStack.get(fig) || undoStack.set(fig, []).get(fig)).push(fig.dataset.src || '');
+    ctx.globalCompositeOperation = tool.erase ? 'destination-out' : 'source-over';
+    ctx.strokeStyle = tool.color; ctx.lineWidth = (tool.erase ? tool.size * 4 : tool.size) * k; ctx.lineCap = ctx.lineJoin = 'round';
+    const x = (e.clientX - r.left) * k, y = (e.clientY - r.top) * k;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + .1, y); ctx.stroke();
+    pen = { cv, ctx, fig, r, k, x, y };
   });
-  $('#sketchCancel').onclick = () => $('#sketchDlg').close();
-  $('#sketchSave').onclick = () => {
-    const src = sk.cv.toDataURL('image/png');
-    $('#sketchDlg').close();
-    if (!sk.strokes.length && !sk.base) return;
-    if (sk.fig) sk.fig.querySelector('img').src = src;
-    else {
-      const holder = document.createElement('template'); holder.innerHTML = blockHTML({ t: 'sketch', src }) + blockHTML({ t: 'p' });
-      const ref = sk.after && sk.after.parentNode === body() ? sk.after.nextSibling : null;
-      const nextLine = holder.content.lastChild;
-      body().insertBefore(holder.content, ref);
-      body().focus(); caretAt(nextLine, 0);
-    }
-    saveDoc(true); refreshDocUI();
+  addEventListener('pointermove', e => {
+    if (!pen) return;
+    const { ctx, r, k } = pen, x = (e.clientX - r.left) * k, y = (e.clientY - r.top) * k;
+    ctx.beginPath(); ctx.moveTo(pen.x, pen.y); ctx.lineTo(x, y); ctx.stroke(); pen.x = x; pen.y = y;
+  });
+  const penUp = () => { if (!pen) return; const { cv, fig } = pen; pen = null; fig.dataset.src = cv.toDataURL('image/png'); saveDoc(true); };
+  addEventListener('pointerup', penUp); addEventListener('pointercancel', penUp);
+  const sketchAction = (btn) => {
+    const fig = btn.closest('figure'), act = btn.dataset.sk;
+    if (act === 'color') { tool.color = btn.dataset.v; tool.erase = false; }
+    else if (act === 'size') tool.size = +btn.dataset.v;
+    else if (act === 'erase') tool.erase = !tool.erase;
+    else if (act === 'undo') { const st = undoStack.get(fig); if (st?.length) paintSrc(fig, st.pop()); }
+    else if (act === 'clear') { if (fig.dataset.src && confirm('Clear this drawing?')) { (undoStack.get(fig) || undoStack.set(fig, []).get(fig)).push(fig.dataset.src); paintSrc(fig, ''); } }
+    else if (act === 'del') { if (!fig.dataset.src || confirm('Delete this drawing?')) { fig.remove(); normalize(); saveDoc(true); refreshDocUI(); } }
+    syncBars();
+  };
+  // Put a new drawing area after the line you're on, with a fresh line under it to keep writing.
+  const insertSketch = after => {
+    const holder = document.createElement('template'); holder.innerHTML = blockHTML({ t: 'sketch', src: '' }) + blockHTML({ t: 'p' });
+    const fig = holder.content.firstChild, nextLine = holder.content.lastChild;
+    body().insertBefore(holder.content, after && after.parentNode === body() ? after.nextSibling : null);
+    body().focus(); caretAt(nextLine, 0); // keep writing under the drawing
+    hydrateSketches(); refreshDocUI(); saveDoc(true);
+    fig.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
 
   /* ---------- item types ---------- */
@@ -507,7 +511,7 @@
 
   let moving = null;
   let renderPending = false, picking = null, dueEditing = null, quiet = false;
-  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .due-edit input, #docBody') || !!drag || !!cardDrag;
+  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .due-edit input, #docBody') || !!drag || !!cardDrag || !!pen;
   const isDocPage = () => S.pages.find(p => p.id === currentPage())?.kind === 'doc';
   const render = () => {
     renderPending = false;
