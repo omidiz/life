@@ -51,7 +51,7 @@ export class ChatRoom {
   config = async () => config(this.env, await this.state.get('model'));
 
   async handle(u) {
-    const c = await this.config(), tg = telegram(c);
+    const c = await this.config(), tg = telegram(c, id => this.trackSent(id));
     await this.keepMenuFresh(c, tg);
     try {
       if (u.message) await this.message(c, tg, u.message);
@@ -61,6 +61,27 @@ export class ChatRoom {
       await tg.send(`⚠️ ${words(c).error} ${esc(e.message || String(e))}`);
       await this.logError(u.message ? 'message' : 'button', e);
     }
+  }
+
+  // Remember recent bot message IDs so /clean can delete them (Telegram allows up to 48 hours).
+  async trackSent(id) {
+    if (!id) return;
+    const cutoff = Date.now() - 47.5 * 3600e3;
+    const list = ((await this.state.get('sent')) || []).filter(x => x.at > cutoff);
+    if (!list.some(x => x.id === id)) list.push({ id, at: Date.now() });
+    await this.state.put('sent', list.slice(-500));
+  }
+
+  async cleanChat(c, tg) {
+    const w = words(c), cutoff = Date.now() - 47.5 * 3600e3;
+    const ids = [...new Set(((await this.state.get('sent')) || []).filter(x => x.at > cutoff).map(x => x.id))];
+    let n = 0;
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      if ((await tg.delMany(chunk)).ok) n += chunk.length;
+    }
+    await this.state.put('sent', []);
+    return tg.send(n ? w.cleaned(n) : w.cleanEmpty);
   }
 
   // When a new version changes the command menu, update it in Telegram (no need to open /setup again).
@@ -87,6 +108,7 @@ export class ChatRoom {
     switch (cmd) {
       case 'start': case 'help': return tg.send(w.help);
       case 'new': await this.state.put('chat', []); return tg.send(w.newChat);
+      case 'clean': return this.cleanChat(c, tg);
       case 'img': case 'image': {
         if (!arg) return tg.send(w.imgHow);
         const stop = tg.busy('upload_photo');
@@ -183,7 +205,7 @@ export class ChatRoom {
 
   /* ---------- every 5 minutes ---------- */
   async tick() {
-    const c = await this.config(), tg = telegram(c);
+    const c = await this.config(), tg = telegram(c, id => this.trackSent(id));
     try { await planTick(c, tg, this.state); } catch (e) { await this.logError('reminders', e); }
     // Tell the user when a change to the bot's code is live (or failed to build).
     const pending = await this.state.get('pendingBuild');
