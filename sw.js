@@ -1,6 +1,6 @@
 // Offline support: always ask the server for the newest files first (bypassing the
 // browser's 10-minute HTTP cache), and fall back to the saved copy when offline.
-const CACHE = 'life-v33';
+const CACHE = 'life-v34';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

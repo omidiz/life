@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Life</title>
-  <meta name="theme-color" content="#111416">
+  <meta name="theme-color" content="#ffffff">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Life">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -15,25 +15,23 @@
 </head>
 <body>
   <nav class="topbar" aria-label="Pages">
+    <div class="tb-date">
+      <div class="tb-week" id="dateWeek"></div>
+      <h1 class="tb-day" id="date"></h1>
+      <div class="tb-fa" id="dateFa" dir="rtl" lang="fa"></div>
+    </div>
     <div class="pages" id="pages" role="tablist"></div>
     <div class="top-actions">
       <span class="sync-status" id="syncStatus"></span>
+      <div class="tb-clock">
+        <time class="clock-time" id="clockTime" title="Tehran time"></time>
+        <div class="summary" id="summary"></div>
+      </div>
       <button class="new-btn" id="newBoardBtn" title="New board">+ New board</button>
       <button class="icon-btn" id="themeBtn" title="Light / dark" aria-label="Toggle theme">◐</button>
       <button class="icon-btn" id="menuBtn" title="Sync &amp; backup" aria-label="Menu">⋯</button>
     </div>
   </nav>
-
-  <header class="top">
-    <div>
-      <h1 class="date" id="date"></h1>
-      <div class="date-fa" id="dateFa" dir="rtl" lang="fa"></div>
-      <div class="summary" id="summary"></div>
-    </div>
-    <div class="clock" id="clock">
-      <time class="clock-time" id="clockTime" title="Tehran time"></time>
-    </div>
-  </header>
 
   <main class="boards" id="boards"></main>
   <main class="doc" id="doc" hidden>

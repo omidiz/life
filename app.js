@@ -68,7 +68,7 @@
   const applyTheme = () => {
     const dark = S.theme ? S.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
     document.documentElement.classList.toggle('dark', dark);
-    $('meta[name=theme-color]').content = '#111416'; // matches the black navigation bar
+    $('meta[name=theme-color]').content = dark ? '#111416' : '#ffffff'; // matches the black navigation bar
   };
   $('#themeBtn').onclick = () => {
     S.theme = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
@@ -678,8 +678,10 @@
   };
 
   const header = () => {
-    $('#date').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
-    try { $('#dateFa').textContent = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date()); } catch {}
+    const now_ = new Date();
+    $('#dateWeek').textContent = now_.toLocaleDateString('en-GB', { weekday: 'long' });
+    $('#date').textContent = now_.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    try { $('#dateFa').textContent = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(now_).replace(/[,،]/g, ''); } catch {}
     if (isDocPage()) { $('#summary').textContent = wordCount(); return; }
     const ids = new Set(boards().map(b => b.id));
     const tasks = live(S.tasks).filter(t => isTask(t) && t.title && ids.has(t.boardId));
@@ -1349,9 +1351,9 @@
   const fitSticky = () => {
     const root = document.documentElement.style;
     root.setProperty('--nav-h', $('.topbar').offsetHeight + 'px');
-    root.setProperty('--head-h', $('header.top').offsetHeight + 'px');
+    root.setProperty('--head-h', '0px');
   };
-  new ResizeObserver(fitSticky).observe($('.topbar')); new ResizeObserver(fitSticky).observe($('header.top'));
+  new ResizeObserver(fitSticky).observe($('.topbar'));
 
   applyTheme(); render();
   if (sync) runSync();
