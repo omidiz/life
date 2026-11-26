@@ -146,7 +146,7 @@ check('/new clears the conversation', !((await storage.get('chat')) || []).lengt
 mark(); await say({ text: '/today' });
 check('/today shows the day', lastText().includes('۱۴'), lastText());
 mark(); await say({ text: '\u200e /status' });
-check('/status works even with an invisible mark before it', /AI \(aa\)/.test(lastText()) && /Dashboard: 1 pages/.test(lastText()) && /GitHub: can edit/.test(lastText()), lastText());
+check('/status works even with an invisible mark before it', /AI \(aa\)/.test(lastText()) && /Dashboard: \d+ pages/.test(lastText()) && /GitHub: can edit/.test(lastText()), lastText());
 
 // reminders and the morning brief
 gist.tasks.push({ id: 'r1', boardId: 'b-study', type: 'task', title: 'قرص', due: nowLocal(), done: false, pos: 9, created: 1, updated: 1 });
@@ -174,6 +174,29 @@ check('code: undo restores the file', repo.trees[repo.commits[repo.head].tree]['
 mark(); ai.push({ tools: [['propose_change', { summary: 'x', files: [{ path: 'bot/a.js', content: 'const k = "sk-abcdefghijklmnopqrstuvwxyz0123"' }] }]] }, b => ({ text: JSON.stringify(b.messages.at(-1)).includes('Refused') ? 'رد شد.' : 'نه!' }));
 await say({ text: 'کلید رو بذار تو کد' });
 check('code: keys are never written into files', lastText().includes('رد شد'));
+
+// organising the dashboard
+mark(); ai.push({ tools: [['manage_page', { action: 'create', name: 'Work' }], ['create_board', { name: 'Projects', page: 'Work', color: 'lilac' }]] }, { text: 'ساختم.' });
+await say({ text: 'یک صفحه‌ی Work بساز با برد Projects بنفش' });
+const work = gist.pages.find(p => p.name === 'Work' && !p.deleted), proj = gist.boards.find(b => b.name === 'Projects');
+check('dashboard: page and coloured board created', !!work && proj?.pageId === work.id && proj.color === 'lilac', JSON.stringify(gist.boards));
+mark(); ai.push({ tools: [['manage_board', { board: 'projects', rename: 'Projects 2026', color: 'sage', page: 'Home' }]] }, { text: 'انجام شد.' });
+await say({ text: 'اسمش رو Projects 2026 کن، سبز، ببرش Home' });
+const pb = gist.boards.find(b => b.id === proj.id);
+check('dashboard: board renamed, recoloured, moved', pb.name === 'Projects 2026' && pb.color === 'sage' && pb.pageId === 'p-home', JSON.stringify(pb));
+mark(); ai.push({ tools: [['write_notepad', { page: 'Ideas', text: '# ایده‌ها\n- اپ **یادداشت**\n- [ ] تحقیق' }]] }, { tools: [['write_notepad', { page: 'Ideas', text: '> جمع‌بندی' }]] }, { text: 'نوشتم.' });
+await say({ text: 'تو یک صفحه یادداشت به اسم Ideas ایده‌هام رو بنویس' });
+const ideas = gist.pages.find(p => p.name === 'Ideas' && !p.deleted), doc = ideas && Object.values(ideas.sheets)[0].doc;
+check('notepad: page created and written in its format', ideas?.kind === 'doc' && /data-t="h1"[^>]*>ایده‌ها/.test(doc) && /<b>یادداشت<\/b>/.test(doc) && /data-t="todo"/.test(doc), doc);
+check('notepad: append adds to the end', /data-t="quote"[^>]*>جمع‌بندی<\/div>$/.test(doc || ''));
+mark(); ai.push({ tools: [['write_notepad', { page: 'Ideas', text: 'برگه‌ی دوم', mode: 'new_sheet' }]] }, { tools: [['read_notepad', { page: 'Ideas' }]] }, b => ({ text: JSON.stringify(b.messages.at(-1)).includes('sheet 2') ? 'دو برگه.' : 'نه.' }));
+await say({ text: 'یک برگه‌ی جدید هم اضافه کن' });
+const ideas2 = gist.pages.find(p => p.name === 'Ideas' && !p.deleted);
+check('notepad: new sheet added and read back', ideas2.rows.flat().length === 2 && lastText().includes('دو برگه'), JSON.stringify(ideas2.rows));
+mark(); ai.push({ tools: [['manage_page', { action: 'move', name: 'Ideas', position: 1 }], ['manage_page', { action: 'rename', name: 'Work', new_name: 'Job' }], ['manage_page', { action: 'delete', name: 'Job' }]] }, { text: 'باشه.' });
+await say({ text: 'Ideas رو اول بذار، Work رو Job کن و بعد پاکش کن' });
+const live_ = gist.pages.filter(p => !p.deleted).sort((a, b) => a.order - b.order);
+check('pages: moved, renamed, deleted', live_[0].name === 'Ideas' && !live_.some(p => p.name === 'Job') && gist.pages.some(p => p.name === 'Job' && p.deleted), JSON.stringify(live_.map(p => p.name)));
 
 // switching models
 mark(); await say({ text: '/model' });

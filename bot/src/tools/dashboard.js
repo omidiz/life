@@ -1,5 +1,6 @@
 /* Tools for the Life dashboard: find, add, change and organise tasks, notes and boards, and read notepad pages. */
-import { live, isTask, boardList, pageList, findBoard, boardName, createBoard, inbox, addItem, openTasks, byDue, notepads } from '../dashboard.js';
+import { live, isTask, boardList, pageList, findBoard, findPage, boardName, createBoard, createPage, deleteBoard, deletePage, inbox, addItem, openTasks, byDue,
+  COLORS, sheetIds, addSheet, markdownToDoc, notepadSheets } from '../dashboard.js';
 import { today } from '../time.js';
 
 const obj = (properties, required = []) => ({ type: 'object', additionalProperties: false, properties, required });
@@ -105,22 +106,117 @@ export function dashboardTools(ctx) {
     },
     {
       name: 'create_board',
-      description: 'Create a new board (only when the user asks).',
-      input_schema: obj({ name: { type: 'string' }, page: { type: 'string', description: 'Page name (made if missing). Empty → first page.' } }, ['name']),
-      run: async ({ name, page }) => {
+      description: 'Create a new board (a card on a boards page).',
+      input_schema: obj({
+        name: { type: 'string' },
+        page: { type: 'string', description: 'Boards page to put it on (made if missing). Empty → first page.' },
+        color: { type: 'string', enum: COLORS },
+      }, ['name']),
+      run: async ({ name, page, color }) => {
         const s = await dash(), existing = findBoard(s, name);
         if (existing && existing.name.toLowerCase() === name.toLowerCase()) return `A board "${existing.name}" already exists.`;
         const b = createBoard(s, name.trim(), page);
+        if (COLORS.includes(color)) b.color = color;
         return `Created board "${b.name}" on page "${s.pages.find(p => p.id === b.pageId)?.name}".`;
       },
     },
     {
+      name: 'manage_board',
+      description: 'Change a board: rename it, change its colour, move it to another page, or delete it with everything on it '
+        + '(delete only when the user clearly asked for that board to be deleted).',
+      input_schema: obj({
+        board: { type: 'string', description: 'The board’s current name.' },
+        rename: { type: 'string' }, color: { type: 'string', enum: COLORS },
+        page: { type: 'string', description: 'Move to this boards page (made if missing).' },
+        delete: { type: 'boolean' },
+      }, ['board']),
+      run: async ({ board, rename, color, page, delete: del }) => {
+        const s = await dash(), b = findBoard(s, board);
+        if (!b) return `No board called "${board}". Boards: ${boardList(s).map(x => x.name).join(', ')}`;
+        if (del) { const n = openTasks(s, b.id).length; deleteBoard(s, b); return `Deleted board "${b.name}" (it had ${n} open tasks).`; }
+        if (rename) b.name = rename.trim();
+        if (COLORS.includes(color)) b.color = color;
+        if (page) {
+          let p = pageList(s).filter(x => x.kind !== 'doc').find(x => x.name.toLowerCase() === page.toLowerCase()) || findPage(s, page);
+          if (p?.kind === 'doc') return `"${p.name}" is a notepad page; boards go on boards pages.`;
+          p ||= createPage(s, page.trim());
+          b.pageId = p.id; delete b.x; delete b.y; // the dashboard finds it a free spot
+        }
+        b.updated = Date.now();
+        return `Board is now "${b.name}", colour ${b.color}, on page "${s.pages.find(p => p.id === b.pageId)?.name}".`;
+      },
+    },
+    {
+      name: 'manage_page',
+      description: 'Pages are the tabs at the top of the dashboard: a boards page holds boards; a notepad page holds sheets to write on. '
+        + 'Create, rename, move or delete a page (delete only when the user clearly asked for that page; it deletes everything on it).',
+      input_schema: obj({
+        action: { type: 'string', enum: ['create', 'rename', 'move', 'delete'] },
+        name: { type: 'string', description: 'The page (for create: its name).' },
+        kind: { type: 'string', enum: ['boards', 'notepad'], description: 'For create. Default boards.' },
+        new_name: { type: 'string', description: 'For rename.' },
+        position: { type: 'integer', description: 'For move: 1 = first tab.' },
+      }, ['action', 'name']),
+      run: async ({ action, name, kind, new_name, position }) => {
+        const s = await dash();
+        if (action === 'create') {
+          if (findPage(s, name)?.name.toLowerCase() === name.toLowerCase()) return `A page "${name}" already exists.`;
+          const p = createPage(s, name.trim(), kind);
+          return `Created ${kind === 'notepad' ? 'notepad' : 'boards'} page "${p.name}".`;
+        }
+        const p = findPage(s, name);
+        if (!p) return `No page called "${name}". Pages: ${pageList(s).map(x => x.name).join(', ')}`;
+        if (action === 'delete') {
+          if (pageList(s).length < 2) return 'This is the only page; it cannot be deleted.';
+          const nb = live(s.boards).filter(b => b.pageId === p.id).length;
+          deletePage(s, p);
+          return `Deleted page "${p.name}"${nb ? ` and its ${nb} board(s)` : ''}.`;
+        }
+        if (action === 'rename') { if (!new_name) return 'Give new_name.'; p.name = new_name.trim(); }
+        if (action === 'move') {
+          const order = pageList(s).filter(x => x.id !== p.id);
+          order.splice(Math.max(0, Math.min(order.length, (position || 1) - 1)), 0, p);
+          order.forEach((x, i) => { if (x.order !== i) { x.order = i; x.updated = Date.now(); } });
+        }
+        p.updated = Date.now();
+        return `Pages now: ${pageList(s).map(x => x.name).join(', ')}.`;
+      },
+    },
+    {
       name: 'read_notepad',
-      description: "Read the user's notepad pages on the dashboard (read only).",
-      input_schema: obj({ page: { type: 'string', description: 'Page name; empty for all.' } }),
+      description: "Read the user's notepad pages, sheet by sheet.",
+      input_schema: obj({ page: { type: 'string', description: 'Page name; empty for all notepad pages.' } }),
       run: async ({ page }) => {
-        const pages = notepads(await dash()).filter(p => !page || p.page.toLowerCase().includes(page.toLowerCase()));
-        return pages.length ? pages.map(p => `# ${p.page}\n${p.text.slice(0, 30000)}`).join('\n\n') : 'No notepad writing found.';
+        const s = await dash();
+        const pages = pageList(s).filter(p => p.kind === 'doc' && (!page || p.name.toLowerCase().includes(page.toLowerCase())));
+        if (!pages.length) return page ? `No notepad page called "${page}".` : 'There are no notepad pages.';
+        return pages.map(p => `# Page "${p.name}"\n` + notepadSheets(p).map(x => `--- sheet ${x.n} ---\n${x.text.slice(0, 30000) || '(empty)'}`).join('\n')).join('\n\n');
+      },
+    },
+    {
+      name: 'write_notepad',
+      description: 'Write on a notepad page. Text is Markdown: # heading, ## subheading, - list, 1. list, - [ ] task, - [x] done task, '
+        + '> quote, **bold**, *italic*. Modes: append (add at the end of the sheet, default), replace (rewrite the whole sheet; '
+        + 'read it first and keep what should stay), new_sheet (a new sheet on the page). Creates the notepad page if it does not exist.',
+      input_schema: obj({
+        page: { type: 'string', description: 'Notepad page name.' },
+        text: { type: 'string' },
+        mode: { type: 'string', enum: ['append', 'replace', 'new_sheet'] },
+        sheet: { type: 'integer', description: 'Which sheet (1 = first). Default the first; for append, the last.' },
+      }, ['page', 'text']),
+      run: async ({ page, text, mode = 'append', sheet }) => {
+        const s = await dash();
+        let p = pageList(s).find(x => x.kind === 'doc' && x.name.toLowerCase() === page.toLowerCase()) || pageList(s).filter(x => x.kind === 'doc').find(x => x.name.toLowerCase().includes(page.toLowerCase()));
+        const created = !p;
+        if (!p) p = createPage(s, page.trim(), 'notepad');
+        let ids = sheetIds(p);
+        if (!ids.length || mode === 'new_sheet') { addSheet(p); ids = sheetIds(p); }
+        const id = mode === 'new_sheet' ? ids.at(-1) : ids[Math.min(ids.length, Math.max(1, sheet || (mode === 'append' ? ids.length : 1))) - 1];
+        const d = (p.sheets[id] ||= { doc: '', ink: null }), html = markdownToDoc(text);
+        const empty = !d.doc || /^(<div data-t="p" dir="auto"><br><\/div>)*$/.test(d.doc);
+        d.doc = mode === 'replace' || empty ? html : d.doc + html;
+        p.updated = Date.now();
+        return `${created ? `Created notepad page "${p.name}" and wrote` : 'Wrote'} on sheet ${ids.indexOf(id) + 1} of "${p.name}".`;
       },
     },
   ];

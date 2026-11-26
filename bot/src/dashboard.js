@@ -3,7 +3,7 @@
    so the dashboard merges the bot's changes like another device's.
    Loaded only when needed (a tool or the reminders ask for it), never for plain chat. */
 const FILE = 'life-dashboard.json';
-const COLORS = ['grey', 'sage', 'clay', 'lilac', 'mist', 'sand', 'stone', 'white'];
+export const COLORS = ['grey', 'sage', 'clay', 'lilac', 'mist', 'sand', 'stone', 'white'];
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
 export const live = arr => (arr || []).filter(x => !x.deleted);
@@ -106,7 +106,52 @@ export function addItem(s, { title, boardId, type = 'task', due = null }) {
 export const openTasks = (s, boardId) => live(s.tasks).filter(t => isTask(t) && !t.done && t.title && (!boardId || t.boardId === boardId));
 export const byDue = (a, b) => (a.due || '9999').localeCompare(b.due || '9999') || (a.pos ?? 0) - (b.pos ?? 0);
 
+export function createPage(s, name, kind = 'boards') {
+  const p = { id: 'p-' + uid(), name, order: (pageList(s).at(-1)?.order ?? -1) + 1, updated: Date.now(),
+    ...(kind === 'notepad' && { kind: 'doc', sheets: { s1: { doc: '', ink: null } }, rows: [[{ id: 's1', w: 820 }]] }) };
+  s.pages.push(p);
+  return p;
+}
+// Deleting keeps a tombstone (deleted + updated), the way the dashboard syncs deletes.
+const drop = x => { x.deleted = true; x.updated = Date.now(); };
+export function deleteBoard(s, b) { drop(b); s.tasks.filter(t => t.boardId === b.id && !t.deleted).forEach(drop); }
+export function deletePage(s, p) { drop(p); live(s.boards).filter(b => b.pageId === p.id).forEach(b => deleteBoard(s, b)); }
+
+/* ---------- notepad sheets ----------
+   A notepad page has sheets laid out in rows (page.rows = [[{id, w}], …]); each sheet's writing is
+   page.sheets[id].doc, a list of blocks: <div data-t="p|h1|h2|ul|ol|todo|quote" dir="auto">text</div>. */
+export const sheetIds = p => (p.rows || []).flat().map(c => c.id);
+export function addSheet(p) {
+  const id = 's-' + uid();
+  p.sheets ||= {}; p.sheets[id] = { doc: '', ink: null };
+  (p.rows ||= []).push([{ id, w: 820 }]);
+  return id;
+}
+const escHtml = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const inlineMd = t => escHtml(t)
+  .replace(/\*\*(?=\S)(.+?)\*\*/g, '<b>$1</b>').replace(/__(?=\S)(.+?)__/g, '<u>$1</u>')
+  .replace(/(^|[^\w*])\*(?=\S)([^*]+?)\*(?!\w)/g, '$1<i>$2</i>');
+// Markdown → the notepad's blocks: # / ## headings, - lists, 1. lists, - [ ] / - [x] tasks, > quotes, paragraphs.
+export function markdownToDoc(md) {
+  return String(md).replace(/\r\n/g, '\n').split('\n').map(line => {
+    let m, t = 'p', c = false, text = line;
+    if ((m = line.match(/^\s*#\s+(.*)$/))) [t, text] = ['h1', m[1]];
+    else if ((m = line.match(/^\s*#{2,6}\s+(.*)$/))) [t, text] = ['h2', m[1]];
+    else if ((m = line.match(/^\s*[-*+]?\s*\[( |x|X)?\]\s+(.*)$/))) [t, c, text] = ['todo', !!m[1]?.trim(), m[2]];
+    else if ((m = line.match(/^\s*[-*+•]\s+(.*)$/))) [t, text] = ['ul', m[1]];
+    else if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) [t, text] = ['ol', m[1]];
+    else if ((m = line.match(/^\s*>\s?(.*)$/))) [t, text] = ['quote', m[1]];
+    return `<div data-t="${t}"${c ? ' data-c="1"' : ''} dir="auto">${inlineMd(text.trim()) || '<br>'}</div>`;
+  }).join('');
+}
+
 // Notepad pages as plain text (read only).
+const docText = html => String(html || '')
+  .replace(/<div data-t="h1"[^>]*>/g, '# ').replace(/<div data-t="h2"[^>]*>/g, '## ').replace(/<div data-t="todo" data-c="1"[^>]*>/g, '- [x] ')
+  .replace(/<div data-t="todo"[^>]*>/g, '- [ ] ').replace(/<div data-t="[uo]l"[^>]*>/g, '- ').replace(/<div data-t="quote"[^>]*>/g, '> ')
+  .replace(/<\/(p|div|h\d|li|blockquote)>|<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '')
+  .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\n{3,}/g, '\n\n').trim();
+export const notepadSheets = p => sheetIds(p).map((id, i) => ({ n: i + 1, id, text: docText(p.sheets?.[id]?.doc) }));
 export const notepads = s => pageList(s).filter(p => p.kind === 'doc').map(p => ({
   page: p.name,
   text: Object.values(p.sheets || {}).map(x => String(x.doc || '')
