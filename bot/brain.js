@@ -19,6 +19,8 @@ Talking:
   for real questions (steps, lists, examples, code). Don't pad, don't repeat the question.
 - Write in Markdown: **bold**, *italic*, lists, \`code\` and \`\`\` code blocks \`\`\`. Headings are fine for long answers. Avoid tables.
 - You remember the recent conversation; use it. Be honest when you don't know something or when it may be out of date.
+- The user may send photos, voice messages, PDFs, documents, spreadsheets, audio, video or code files: read them fully and use them.
+- Think as carefully as the question deserves; give your best, most complete answer.
 
 Pictures:
 - When the user asks for a picture, drawing, photo, logo, wallpaper, poster, illustration, etc., call make_image.
@@ -55,7 +57,6 @@ function tools(s, env, log, out) {
         },
       },
       run: async ({ prompt, shape }) => {
-        if (out.images.length >= 4) return 'Limit reached: at most 4 pictures per message.';
         out.images.push(await makeImage(env, String(prompt), shape));
         return 'Done: the picture will be sent to the user right after your reply.';
       },
@@ -199,52 +200,67 @@ ${notepads.length ? `Notepad pages: ${notepads.join(', ')}\n` : ''}Open tasks: $
 </context>`;
 }
 
-export async function think(env, data, { text, image }) {
+export async function think(env, data, { text, parts = [], label = '' }) {
   const log = [], out = { images: [] };
-  // The recent conversation (last 20 messages, forgotten after a day without talking; /new clears it).
-  const fresh = data.bot.chat.filter(m => Date.now() - m.at < 24 * 3600e3).slice(-20);
+  // The conversation so far (last 50 messages within a week; /new clears it).
+  const fresh = data.bot.chat.filter(m => Date.now() - m.at < 7 * 864e5).slice(-50);
   const history = fresh.map(m => ({ role: m.r === 'u' ? 'user' : 'assistant', content: m.t }));
   while (history.length && history[0].role !== 'user') history.shift();
-  const prompt = `${context(data.s, env)}\n\n${text || '(photo)'}`;
+  const prompt = `${context(data.s, env)}\n\n${text || '(see the attachment)'}`;
 
-  const reply = (await chat(env, data, history, prompt, image, log, out))
+  const reply = (await chat(env, data, history, prompt, parts, log, out))
     .replace(/<think>[\s\S]*?<\/think>/g, '').trim() || (out.images.length ? '' : '✓');
 
-  const short = x => (x.length > 3000 ? x.slice(0, 3000) + ' …' : x);
+  const short = x => (x.length > 20000 ? x.slice(0, 20000) + ' …' : x);
   data.bot.chat = [...fresh,
-    { r: 'u', t: short(text || '(sent a photo)') + (image ? ' [photo]' : ''), at: Date.now() },
+    { r: 'u', t: short(text || '(sent an attachment)') + (label ? ` [${label}]` : ''), at: Date.now() },
     { r: 'a', t: short(reply || '(sent a picture)') + (out.images.length ? ` [sent ${out.images.length} picture(s)]` : ''), at: Date.now() },
-  ].slice(-20);
+  ].slice(-50);
   return { text: reply, images: out.images };
 }
 
 // Works with any OpenAI-compatible chat API that supports tool calling:
 // NVIDIA (default), OpenRouter, Groq, Google Gemini, OpenAI, DeepSeek, Mistral…
 // Set AI_URL, AI_MODEL and AI_API_KEY in the Cloudflare dashboard to switch.
-async function chat(env, data, history, prompt, image, log, out) {
+async function chat(env, data, history, prompt, parts, log, out) {
   const url = aiUrl(env);
   const model = env.AI_MODEL || 'z-ai/glm-5.3-flash';
   const list = tools(data.s, env, log, out);
   const defs = list.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
-  const user = image
-    ? [{ type: 'image_url', image_url: { url: `data:${image.type};base64,${image.data}` } }, { type: 'text', text: prompt }]
-    : prompt;
+  const user = parts.length ? [...parts, { type: 'text', text: prompt }] : prompt;
   const messages = [{ role: 'system', content: SYSTEM }, ...history, { role: 'user', content: user }];
-  let extras = { max_tokens: 8192, temperature: 0.6 }; // dropped if a provider doesn't accept them
-  const deadline = Date.now() + 55000;
+  // Full strength: a large answer budget and deep thinking. Anything the service refuses is dropped.
+  const extras = { max_tokens: +env.AI_MAX_TOKENS || 32000, ...(env.AI_REASONING !== '' && { reasoning_effort: env.AI_REASONING || 'high' }) };
+  const refused = data.bot.refused ||= {}; // settings this service said no to (remembered per model)
+  for (const k of refused[model] || []) delete extras[k];
+  const deadline = Date.now() + 12 * 60000; // a message may take up to 12 minutes
 
-  for (let round = 0; round < 10; round++) {
+  for (let round = 0; round < 25; round++) {
     const r = await post(env, url, { model, messages, tools: defs, tool_choice: 'auto', stream: false, ...extras }, deadline - Date.now());
-    if (r.status === 400 && Object.keys(extras).length) { extras = {}; round--; continue; }
+    if (r.status === 400 && Object.keys(extras).length) { // drop optional settings one by one, deep thinking first
+      const k = Object.keys(extras).includes('reasoning_effort') ? 'reasoning_effort' : Object.keys(extras)[0];
+      delete extras[k];
+      refused[model] = [...new Set([...(refused[model] || []), k])];
+      round--; continue;
+    }
+    if (r.status === 400) throw new Error(`The AI service refused the request${parts.length ? ' (maybe this kind of file)' : ''}: ${(await r.text()).slice(0, 300)}`);
     if (r.status === 401 || r.status === 403) throw new Error('The AI service rejected the key (AI_API_KEY).');
     if (r.status === 404) throw new Error(`The AI service doesn't know this address or model (AI_URL / AI_MODEL: ${model}).`);
     if (r.status === 429) throw new Error('The AI service is busy (rate limit). Try again in a minute.');
     if (!r.ok) throw new Error(`AI service error ${r.status}: ${(await r.text()).slice(0, 200)}`);
     const msg = (await r.json()).choices?.[0]?.message;
     if (!msg) throw new Error('The AI service sent an empty answer.');
+    // Models that draw pictures themselves send them back with the answer.
+    for (const im of [...(msg.images || []), ...(Array.isArray(msg.content) ? msg.content.filter(c => c.type === 'image_url') : [])]) {
+      const u = im.image_url?.url || im.url;
+      const m = u?.match(/^data:([^;]+);base64,(.+)$/);
+      if (m) out.images.push({ bytes: Uint8Array.from(atob(m[2]), c => c.charCodeAt(0)), type: m[1] });
+      else if (u) out.images.push({ url: u });
+    }
+    const content = Array.isArray(msg.content) ? msg.content.filter(c => c.type === 'text').map(c => c.text).join('\n') : msg.content || '';
     const calls = msg.tool_calls || [];
-    if (!calls.length) return msg.content || '';
-    messages.push({ role: 'assistant', content: msg.content || '', tool_calls: calls });
+    if (!calls.length) return content;
+    messages.push({ role: 'assistant', content, tool_calls: calls });
     for (const c of calls) {
       const t = list.find(t => t.name === c.function?.name);
       let result;

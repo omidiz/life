@@ -7,6 +7,7 @@
 import { think, checkAI } from './brain.js';
 import { mdToHtml, splitMd } from './format.js';
 import { makeImage, transcribe } from './media.js';
+export { ChatRoom } from './room.js';
 import { open, esc, live, isTask, boardList, boardName, openTasks, byDue, dayKey, nowKey, addDays, addMinutes, persianDate, inbox, addItem, findBoard } from './data.js';
 
 /* ---------- words (Farsi by default, LANG = "en" for English) ---------- */
@@ -138,21 +139,46 @@ function listView(s, env) {
 }
 
 /* ---------- messages ---------- */
-async function photoOf(env, m) {
-  const fileId = m.photo?.at(-1)?.file_id || (m.document?.mime_type?.startsWith('image/') && m.document.file_id) || (m.sticker && !m.sticker.is_animated && !m.sticker.is_video && m.sticker.file_id);
-  if (!fileId) return null;
-  const { bytes, path } = await download(env, fileId);
-  let bin = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  const ext = path.split('.').pop().toLowerCase();
-  const type = m.document?.mime_type || ({ png: 'image/png', webp: 'image/webp', gif: 'image/gif' }[ext] || 'image/jpeg');
-  return { type, data: btoa(bin) };
+const b64 = bytes => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
+const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', pdf: 'application/pdf',
+  oga: 'audio/ogg', ogg: 'audio/ogg', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', mp4: 'video/mp4', webm: 'video/webm' };
+
+// Everything attached to a message, ready for the model: pictures, voice, audio, video, PDFs, any file.
+async function attachments(env, m) {
+  const parts = [], labels = [];
+  let extraText = '', said = '';
+  const photo = m.photo?.at(-1) || (m.sticker && !m.sticker.is_animated && !m.sticker.is_video && m.sticker);
+  const voice = m.voice || m.audio || m.video_note;
+  const file = m.document || m.video || m.animation;
+  if (photo) {
+    const { bytes, path } = await download(env, photo.file_id);
+    parts.push({ type: 'image_url', image_url: { url: `data:${MIME[path.split('.').pop().toLowerCase()] || 'image/jpeg'};base64,${b64(bytes)}` } });
+    labels.push('photo');
+  }
+  if (voice) {
+    const { bytes, path } = await download(env, voice.file_id);
+    const ext = path.split('.').pop().toLowerCase();
+    if (env.STT_MODEL) said = await transcribe(env, bytes, 'voice.' + ext);
+    else if (m.video_note) parts.push({ type: 'file', file: { filename: 'video.mp4', file_data: `data:video/mp4;base64,${b64(bytes)}` } });
+    else parts.push({ type: 'input_audio', input_audio: { data: b64(bytes), format: ext === 'oga' ? 'ogg' : ext } });
+    labels.push(m.video_note ? 'video message' : 'voice message');
+  }
+  if (file) {
+    const name = file.file_name || (m.video ? 'video.mp4' : 'file');
+    const { bytes, path } = await download(env, file.file_id);
+    const mime = file.mime_type || MIME[path.split('.').pop().toLowerCase()] || 'application/octet-stream';
+    if (mime.startsWith('image/')) parts.push({ type: 'image_url', image_url: { url: `data:${mime};base64,${b64(bytes)}` } });
+    else if (TEXT_FILE.test(name) || mime.startsWith('text/') || /json|xml|csv|yaml|javascript/.test(mime)) extraText = `<file name="${name}">\n${new TextDecoder().decode(bytes)}\n</file>`;
+    else parts.push({ type: 'file', file: { filename: name, file_data: `data:${mime};base64,${b64(bytes)}` } });
+    labels.push(name);
+  }
+  return { parts, label: labels.join(', '), extraText, said };
 }
 
 // Download a file the user sent to the bot.
 async function download(env, fileId) {
   const f = await tg(env, 'getFile', { file_id: fileId });
-  if (!f.ok) throw new Error('Telegram could not give the file (bots can download files up to 20 MB).');
+  if (!f.ok) throw new Error('Telegram does not let bots download files over 20 MB. Send a smaller file, or split it.');
   return { bytes: new Uint8Array(await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_TOKEN}/${f.result.file_path}`).then(r => r.arrayBuffer())), path: f.result.file_path };
 }
 
@@ -160,6 +186,7 @@ async function download(env, fileId) {
 const TEXT_FILE = /\.(txt|md|markdown|csv|tsv|json|xml|html?|css|js|ts|py|java|c|cpp|h|cs|go|rs|rb|php|sh|ya?ml|toml|ini|log|sql|srt)$/i;
 
 async function sendPhoto(env, img, caption) {
+  if (img.url) return tg(env, 'sendPhoto', { chat_id: env.CHAT_ID, photo: img.url, ...(caption && { caption: caption.slice(0, 1000) }) });
   const form = new FormData();
   form.append('chat_id', env.CHAT_ID);
   form.append('photo', new Blob([img.bytes], { type: img.type }), 'image.' + (img.type.split('/')[1] || 'jpg'));
@@ -227,32 +254,16 @@ async function onMessage(env, m) {
 
   const stop = busy(env);
   try {
-    // Voice messages: turned into text first (needs STT_MODEL).
-    const voice = m.voice || m.audio || m.video_note;
-    if (voice) {
-      if (!env.STT_MODEL) return send(env, w.voice);
-      const said = await transcribe(env, (await download(env, voice.file_id)).bytes);
-      if (!said) return send(env, w.voiceEmpty);
-      await send(env, `🎤 <i>${esc(said)}</i>`);
-      text = [text, said].filter(Boolean).join('\n');
-    }
-
-    // Files: pictures are looked at, text files are read.
-    let image = await photoOf(env, m);
-    const doc = m.document;
-    if (doc && !image) {
-      const name = doc.file_name || '';
-      if (TEXT_FILE.test(name) || doc.mime_type?.startsWith('text/')) {
-        if (doc.file_size > 300000) return send(env, w.fileBig);
-        const content = new TextDecoder().decode((await download(env, doc.file_id)).bytes);
-        text = `${text || 'Look at this file.'}\n\n<file name="${name}">\n${content.slice(0, 100000)}\n</file>`;
-      } else return send(env, w.fileType);
-    }
-    if (m.sticker) text = text || `(sticker ${m.sticker.emoji || ''})`;
-    if (!text && !image) return;
+    const att = await attachments(env, m);
+    if (att.said) { await send(env, `🎤 <i>${esc(att.said)}</i>`); text = [text, att.said].filter(Boolean).join('\n'); }
+    if (att.extraText) text = `${text || 'Look at this file.'}\n\n${att.extraText}`;
+    if (m.sticker && !text) text = `(sticker ${m.sticker.emoji || ''})`;
+    if (m.location) text = `${text} (my location: ${m.location.latitude}, ${m.location.longitude})`.trim();
+    if (m.contact) text = `${text} (contact: ${[m.contact.first_name, m.contact.last_name].filter(Boolean).join(' ')} ${m.contact.phone_number})`.trim();
+    if (!text && !att.parts.length) return;
 
     const quoted = m.reply_to_message?.text || m.reply_to_message?.caption;
-    const answer = await think(env, data, { text: [quoted && `(replying to: "${quoted.slice(0, 1500)}")`, text].filter(Boolean).join('\n'), image });
+    const answer = await think(env, data, { text: [quoted && `(replying to: "${quoted}")`, text].filter(Boolean).join('\n'), parts: att.parts, label: att.label });
     await data.save();
     await sendAnswer(env, answer);
   } finally { stop(); }
@@ -273,6 +284,16 @@ async function onButton(env, q) {
   // Take the button away so the message shows what's left.
   const kb = (q.message?.reply_markup?.inline_keyboard || []).filter(row => !row.some(b => b.callback_data?.endsWith(':' + id)));
   if (q.message) await tg(env, 'editMessageReplyMarkup', { chat_id: q.message.chat.id, message_id: q.message.message_id, reply_markup: { inline_keyboard: kb } });
+}
+
+export async function handleUpdate(env, u) {
+  try {
+    if (u.message) await onMessage(env, u.message);
+    else if (u.callback_query) await onButton(env, u.callback_query);
+  } catch (e) {
+    console.error(e);
+    await send(env, `⚠️ ${L(env).error} ${esc(e.message || String(e))}`);
+  }
 }
 
 /* ---------- every 5 minutes: reminders, morning brief, evening review ---------- */
@@ -330,16 +351,13 @@ export default {
       if (u.message) await tg(env, 'sendMessage', { chat_id: chat, text: `This is a private bot. Your chat id is ${chat}` });
       return new Response('ok');
     }
-    // Telegram re-sends a message if we take long to answer; do each one only once.
-    const seen = typeof caches !== 'undefined' && new Request(`https://life-bot.local/update/${u.update_id}`);
-    if (seen) { if (await caches.default.match(seen)) return new Response('ok'); await caches.default.put(seen, new Response('1', { headers: { 'Cache-Control': 'max-age=3600' } })); }
-    try {
-      if (u.message) await onMessage(env, u.message);
-      else if (u.callback_query) await onButton(env, u.callback_query);
-    } catch (e) {
-      console.error(e);
-      await send(env, `⚠️ ${L(env).error} ${esc(e.message || String(e))}`);
+    // Hand the message to the bot's "room" (a Durable Object), which answers it in its own time
+    // (up to 15 minutes), one message after another, each only once.
+    if (env.ROOM) {
+      await env.ROOM.get(env.ROOM.idFromName('chat')).fetch('https://room/update', { method: 'POST', body: JSON.stringify(u) });
+      return new Response('ok');
     }
+    await handleUpdate(env, u);
     return new Response('ok');
   },
   async scheduled(_event, env, ctx) { ctx.waitUntil(tick(env)); },

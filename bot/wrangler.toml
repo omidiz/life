@@ -13,6 +13,15 @@ LANG = "fa"            # "fa" or "en": the language of briefs, reminders and but
 MORNING = "08:00"      # morning brief time; "" to turn it off
 EVENING = "21:00"      # evening review time; "" to turn it off
 
+# The bot's "room", where messages are answered in the background (free plan included).
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "ChatRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ChatRoom"]
+
 # Checks for reminders and brief times every 5 minutes.
 [triggers]
 crons = ["*/5 * * * *"]
