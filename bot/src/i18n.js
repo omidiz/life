@@ -56,3 +56,9 @@ Your Life dashboard:
   },
 };
 export const words = c => T[c.lang];
+
+// The command menu (the "Menu" button in Telegram). The bot keeps it up to date by itself.
+export const commands = c => [
+  ['new', 'گفتگوی تازه', 'Fresh conversation'], ['img', 'ساختن عکس', 'Make a picture'], ['memory', 'چیزهایی که درباره‌ات می‌دانم', 'What I remember about you'],
+  ['today', 'کارهای امروز', 'Today'], ['list', 'همه‌ی کارهای باز', 'All open tasks'], ['status', 'وضعیت اتصال‌ها', 'Check connections'], ['help', 'راهنما', 'Help'],
+].map(([command, fa, en]) => ({ command, description: c.lang === 'fa' ? fa : en }));

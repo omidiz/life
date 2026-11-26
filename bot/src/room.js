@@ -4,7 +4,7 @@
      (Your tasks stay in the dashboard's gist; the bot reads them only when needed.) */
 import { config } from './config.js';
 import { telegram, esc } from './telegram.js';
-import { words } from './i18n.js';
+import { words, commands } from './i18n.js';
 import { converse } from './assistant.js';
 import { checkAI, makeImage } from './ai.js';
 import { openDashboard, live, openTasks, inbox, addItem } from './dashboard.js';
@@ -50,6 +50,7 @@ export class ChatRoom {
 
   async handle(u) {
     const c = config(this.env), tg = telegram(c);
+    await this.keepMenuFresh(c, tg);
     try {
       if (u.message) await this.message(c, tg, u.message);
       else if (u.callback_query) await this.button(c, tg, u.callback_query);
@@ -58,6 +59,14 @@ export class ChatRoom {
       await tg.send(`⚠️ ${words(c).error} ${esc(e.message || String(e))}`);
       await this.logError(u.message ? 'message' : 'button', e);
     }
+  }
+
+  // When a new version changes the command menu, update it in Telegram (no need to open /setup again).
+  async keepMenuFresh(c, tg) {
+    const menu = JSON.stringify(commands(c));
+    if ((await this.state.get('menu')) === menu) return;
+    const r = await tg.api('setMyCommands', { commands: commands(c) });
+    if (r.ok) await this.state.put('menu', menu);
   }
 
   async logError(where, e) {

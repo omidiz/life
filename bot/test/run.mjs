@@ -85,6 +85,12 @@ const lastText = () => [...sent].reverse().find(s => s.text)?.text || '';
 const mark = () => { sent.length = 0; calls.length = 0; aiBodies.length = 0; };
 
 /* ---------- the checks ---------- */
+mark(); ai.push({ text: 'سلام!' }); await say({ text: 'سلام' });
+check('menu: updated by itself on the first message', sent.some(s => s.m === 'setMyCommands' && s.commands.length === 7));
+mark(); ai.push({ text: 'باز سلام!' }); await say({ text: 'سلام' });
+check('menu: not sent again when unchanged', !sent.some(s => s.m === 'setMyCommands'));
+await say({ text: '/new' });
+
 mark(); ai.push({ text: 'سلام! **چطوری؟** چطور می‌تونم کمک کنم؟' });
 await say({ text: 'سلام' });
 check('chat: answers, streamed and formatted', /<b>چطوری؟<\/b>/.test(lastText()), lastText());

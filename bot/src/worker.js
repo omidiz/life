@@ -6,6 +6,7 @@
    Settings: config.js. The assistant itself: assistant.js. */
 import { config } from './config.js';
 import { telegram } from './telegram.js';
+import { commands } from './i18n.js';
 export { ChatRoom } from './room.js';
 
 const room = env => env.ROOM.get(env.ROOM.idFromName('chat'));
@@ -16,13 +17,10 @@ export default {
 
     if (url.pathname === '/setup') {
       if (!c.webhookSecret || url.searchParams.get('secret') !== c.webhookSecret) return new Response('Wrong secret', { status: 403 });
-      const tg = telegram(c), fa = c.lang === 'fa';
+      const tg = telegram(c);
       const hook = await tg.api('setWebhook', { url: `${url.origin}/telegram`, secret_token: c.webhookSecret, allowed_updates: ['message', 'callback_query'] });
-      await tg.api('setMyCommands', { commands: [
-        ['new', 'گفتگوی تازه', 'Fresh conversation'], ['img', 'ساختن عکس', 'Make a picture'], ['memory', 'حافظه', 'What I remember'],
-        ['today', 'کارهای امروز', 'Today'], ['list', 'همه‌ی کارها', 'All open tasks'], ['status', 'وضعیت اتصال‌ها', 'Check connections'], ['help', 'راهنما', 'Help'],
-      ].map(([command, f, e]) => ({ command, description: fa ? f : e })) });
-      return Response.json(hook);
+      const menu = await tg.api('setMyCommands', { commands: commands(c) });
+      return Response.json({ webhook: hook, menu });
     }
 
     if (url.pathname !== '/telegram' || req.method !== 'POST') return new Response('Life bot is running.');
