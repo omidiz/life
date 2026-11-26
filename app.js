@@ -125,6 +125,33 @@
     <input type="time" name="time" value="${due && due.length > 10 ? due.slice(11, 16) : ''}" aria-label="Deadline time (optional)">`;
   const readDue = (date, time) => (date ? date + (time ? 'T' + time : '') : null);
 
+  /* ---------- bold text ----------
+     A line is stored as plain text (title) plus, when it has bold parts, a tiny
+     safe HTML string (rich) that only ever contains escaped text, <b> and <br>. */
+  const isBold = n => n.nodeName === 'B' || n.nodeName === 'STRONG' || /^(bold|bolder|[6-9]00)$/.test(n.style?.fontWeight || '');
+  const toRich = (node, inBold = false) => {
+    let out = '';
+    node.childNodes.forEach(n => {
+      if (n.nodeType === 3) { out += esc(n.nodeValue); return; }
+      if (n.nodeType !== 1) return;
+      if (n.nodeName === 'BR') { out += '<br>'; return; }
+      if (/^(DIV|P)$/.test(n.nodeName) && out && !out.endsWith('<br>')) out += '<br>';
+      const bold = !inBold && isBold(n), inner = toRich(n, inBold || bold);
+      out += bold ? (inner ? `<b>${inner}</b>` : '') : inner;
+    });
+    return out;
+  };
+  const cleanRich = html => html.replace(/(<br>)+$/, '').replace(/<\/b><b>/g, '');
+  // Re-check stored HTML before showing it, so nothing but text, <b> and <br> can ever render.
+  const showRich = html => { const tpl = document.createElement('template'); tpl.innerHTML = html; return cleanRich(toRich(tpl.content)); };
+  // Read what's in a line being edited into the item.
+  const readLine = (el, t) => {
+    const rich = cleanRich(toRich(el));
+    const plain = el.innerText.replace(/\n+$/, '');
+    t.title = typeOf(t) === 'note' ? plain.replace(/^\s+|\s+$/g, '') : plain.replace(/\s+/g, ' ').trim();
+    t.rich = rich.includes('<b>') ? rich : null;
+  };
+
   /* ---------- item types ---------- */
   // 'note' is a plain paragraph of text (shown as "Text").
   const TYPES = {
@@ -169,11 +196,11 @@
   const itemHTML = t => {
     const type = typeOf(t);
     const handle = `<span class="handle" title="Drag to move" aria-hidden="true">${gripIcon}</span>`;
-    const text = `<div class="text" contenteditable="plaintext-only" dir="auto" spellcheck="false" data-ph="${esc(TYPES[type].ph)}">${esc(t.title)}</div>`;
+    const text = `<div class="text" contenteditable="true" dir="auto" spellcheck="false" data-ph="${esc(TYPES[type].ph)}">${t.rich ? showRich(t.rich) : esc(t.title)}</div>`;
     // Small bar under the line you're writing in, to switch what kind of line it is.
     const typebar = `<div class="typebar">${Object.entries(TYPES).map(([k, v]) =>
       `<button class="type ${k === type ? 'on' : ''}" data-act="settype" data-type="${k}" tabindex="-1">${v.label}</button>`).join('')}
-      <button class="type size-btn" data-act="tsmaller" tabindex="-1" aria-label="Smaller text">A−</button><button class="type size-btn" data-act="tbigger" tabindex="-1" aria-label="Bigger text">A+</button></div>`;
+      <button class="type size-btn bold-btn" data-act="tbold" tabindex="-1" aria-label="Bold"><b>B</b></button><button class="type size-btn" data-act="tsmaller" tabindex="-1" aria-label="Smaller text">A−</button><button class="type size-btn" data-act="tbigger" tabindex="-1" aria-label="Bigger text">A+</button></div>`;
     const del = `<button class="del" data-act="del" aria-label="Delete">×</button>`;
     if (type !== 'task') return `
       <li class="item ${type}" data-id="${t.id}"${t.size && t.size !== 1 ? ` style="--z:${t.size}"` : ''}>
@@ -456,7 +483,7 @@
       remove(taskOf(b));
     } else if (act === 'settype') {
       const t = taskOf(b), el = b.closest('.item').querySelector('.text');
-      t.title = el.textContent; return setType(t, b.dataset.type);
+      readLine(el, t); return setType(t, b.dataset.type);
     } else if (act === 'editdue') {
       const id = taskOf(b).id; dueEditing = dueEditing === id ? null : id; render();
       return $(`[data-id="${id}"] .due-edit input`)?.focus();
@@ -468,6 +495,9 @@
       const id = boardOf(b).id; picking = picking === id ? null : id; return render();
     } else if (act === 'color') {
       const board = boardOf(b); board.color = b.dataset.color; board.updated = now(); picking = null;
+    } else if (act === 'tbold') {
+      const el = b.closest('.item').querySelector('.text');
+      document.execCommand('bold'); readLine(el, taskOf(b)); taskOf(b).updated = now(); return save();
     } else if (act === 'tsmaller' || act === 'tbigger') {
       return resizeLine(b.closest('.item'), act === 'tbigger' ? 1 : -1);
     } else if (act === 'moving') {
@@ -504,19 +534,22 @@
     if (el.classList.contains('board-name')) { el.size = Math.max(4, [...el.value].length + 1); return; }
     if (!el.classList.contains('text')) return;
     const t = taskOf(el);
-    t.title = el.textContent; t.updated = now();
-    const hit = typeOf(t) === 'note' && SHORTCUTS.find(([re]) => re.test(t.title));
-    if (hit) { t.title = t.title.replace(hit[0], ''); return setType(t, hit[1]); }
+    const raw = el.innerText;
+    readLine(el, t); t.updated = now();
+    const hit = SHORTCUTS.find(([re, type]) => re.test(raw) && type !== typeOf(t)); // works on any kind of line
+    if (hit) { t.title = raw.replace(hit[0], '').trim(); t.rich = null; return setType(t, hit[1]); }
     store();
   });
 
   // Pasting several lines into a task or list line adds one item per line.
   $('#boards').addEventListener('paste', e => {
     const el = e.target.closest?.('.text'); if (!el) return;
-    const t = taskOf(el), lines = (e.clipboardData?.getData('text/plain') || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    if (typeOf(t) === 'note' || lines.length < 2) return;
-    e.preventDefault();
-    t.title = (el.textContent + lines[0]).trim(); t.updated = now();
+    e.preventDefault(); // paste as plain text, never someone else's formatting
+    const text = e.clipboardData?.getData('text/plain') || '';
+    const t = taskOf(el), lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (typeOf(t) === 'note' || lines.length < 2) { document.execCommand('insertText', false, text); return; }
+    document.execCommand('insertText', false, lines[0]);
+    readLine(el, t); t.updated = now();
     let prev = t;
     for (const line of lines.slice(1)) prev = insertAfter(prev, typeOf(t), line);
     save(); redrawAndFocus(prev.id);
@@ -528,8 +561,13 @@
       e.preventDefault(); // instead of zooming the whole page
       return resizeLine(el.closest('.item'), e.key === '0' ? 0 : e.key === '-' || e.key === '_' ? -1 : 1);
     }
+    if (el.classList.contains('text') && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'b') {
+      e.preventDefault();
+      document.execCommand('bold'); // bolds the selection, or what you type next
+      const t = taskOf(el); readLine(el, t); t.updated = now(); return save();
+    }
     if (el.classList.contains('text')) {
-      const t = taskOf(el), type = typeOf(t), title = el.textContent.trim();
+      const t = taskOf(el), type = typeOf(t), title = el.innerText.trim();
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         if (!title) {
@@ -537,8 +575,10 @@
           if (type !== 'note') setType(t, 'note');
           return;
         }
-        t.title = type === 'note' ? el.textContent.replace(/^\s+|\s+$/g, '') : title; t.updated = now();
+        readLine(el, t); t.updated = now();
         const item = insertAfter(t, type === 'heading' ? 'note' : type); store(); redrawAndFocus(item.id);
+      } else if (e.key === 'Enter' && e.shiftKey) {
+        e.preventDefault(); document.execCommand('insertLineBreak');
       } else if (e.key === 'Backspace' && el.textContent === '') {
         e.preventDefault();
         if (type !== 'note') return setType(t, 'note');
@@ -556,9 +596,9 @@
       if (e.relatedTarget && e.target.closest('.item')?.contains(e.relatedTarget)) return; // tapped its own type bar
       keepId = null;
       const t = taskOf(e.target); if (!t || t.deleted) return;
-      const raw = e.target.textContent;
-      const title = t.type === 'note' ? raw.replace(/^\s+|\s+$/g, '') : raw.replace(/\s+/g, ' ').trim();
-      if (!title) remove(t); else t.title = title;
+      readLine(e.target, t);
+      const title = t.title;
+      if (!title) remove(t);
       t.updated = now(); save();
       if (!title) setTimeout(() => { if (!editing()) render(); else renderPending = true; }, 0);
       else setTimeout(() => { if (!editing()) header(); }, 0);

@@ -396,3 +396,7 @@ html { scroll-padding-top: 76px; }
 @media (hover: none) { .size-btn { display: inline-block; } }
 button { -webkit-tap-highlight-color: transparent; }
 @media (hover: none) { .typebar { gap: 3px; } .typebar .type { padding: 3px 8px; } .size-btn:first-of-type { margin-left: 4px; } }
+
+/* bold */
+.text b, .text strong { font-weight: 700; color: var(--fg); }
+.heading .text b { font-weight: 800; }

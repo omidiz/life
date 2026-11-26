@@ -9,6 +9,7 @@ It's an installable web app (PWA) that works offline.
   resize it from the bottom-right corner, and double-click empty canvas (or press `+ New board`) to make a new card.
   Positions and sizes sync. On a phone the cards stack in one column.
 - **Cards**: tap a title to rename it; ○ changes the colour; × deletes.
+- **Bold**: select words and press Ctrl/⌘ B (again to undo), or press it before typing. On a phone, use **B** in the bar under the line.
 - **Line size**: with the cursor in a line, Ctrl/⌘ + makes it bigger, Ctrl/⌘ − smaller, Ctrl/⌘ 0 resets. On a phone, use A− / A+ in the bar under the line.
 - **Text size**: ⋯ → Text size scales all text on this device (it doesn't sync, so phone and laptop can differ).
 - **Write straight on a board**: tap anywhere on it and type, like a page. Enter starts a new line.
