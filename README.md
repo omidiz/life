@@ -45,4 +45,10 @@ Do the same on each device. Your data is stored in a secret gist named `life-das
 
 Without sync, data stays on the device. ⋯ → Export / Import works as a manual backup either way.
 
+## Telegram bot
+
+A private, Claude-powered Telegram bot (Farsi or English): tell it things in plain words and it adds, finds, ticks off and moves tasks,
+reads photos of lists, answers questions about your boards and notes, reminds you on time, and sends a morning brief and evening review.
+It uses the same sync gist. Step-by-step setup (in Farsi) is in [bot/README.md](bot/README.md).
+
 Run locally: `python3 -m http.server` and open http://localhost:8000
