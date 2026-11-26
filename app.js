@@ -66,7 +66,7 @@
   };
   $('#themeBtn').onclick = () => {
     S.theme = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
-    store(); applyTheme();
+    store(); applyTheme(); setTimeout(() => { try { drawInk(); } catch {} });
   };
 
   /* ---------- render ---------- */
@@ -218,7 +218,7 @@
   const renderDoc = () => {
     const p = docPage(), key = p.id + '\n' + (p.doc || '');
     if (document.activeElement !== body() && !pen && key !== shownDoc) { body().innerHTML = docHTML(parseDoc(p.doc)); shownDoc = key; }
-    hydrateSketches(); refreshDocUI();
+    hydrateSketches(); refreshDocUI(); drawInk();
   };
   let docTimer;
   const saveDoc = (now_ = false) => {
@@ -326,7 +326,7 @@
       const next = { auto: 'rtl', rtl: 'ltr', ltr: 'auto' }[blocks[0]?.getAttribute('dir') || 'auto'];
       blocks.forEach(b => b.setAttribute('dir', next)); return saveDoc(true);
     }
-    if (cmd === 'draw') return insertSketch(blocks.at(-1));
+    if (cmd === 'draw') return setPen(!pen2.on);
   });
 
   /* ---------- drawing right on the page ----------
@@ -402,6 +402,115 @@
     fig.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
 
+  /* ---------- pen on top of the notes ----------
+     ✎ Draw turns on pen mode: a see-through layer over the whole page catches the
+     pen, so you can tick, circle, underline or highlight text and scribble beside it.
+     Strokes are kept as points (page.ink), scaled to the page width when shown. */
+  const INK_COLORS = { black: '#1f2328', red: '#d64545', blue: '#2f6fd1', green: '#2f9e5a' };
+  const pen2 = { mode: 'black', size: 3, on: false };
+  const inkCv = $('#ink'), inkCtx = inkCv.getContext('2d');
+  const inkData = () => { const p = docPage(); if (!p.ink) p.ink = { w: body().clientWidth || 700, strokes: [] }; return p.ink; };
+  const inkUndo = new Map(); // page id → list of { add } / { removed: [[index, stroke]] }
+  const undoList = () => (inkUndo.get(currentPage()) || inkUndo.set(currentPage(), []).get(currentPage()));
+  const sizeInk = () => {
+    const wrap = $('#docWrap'), dpr = Math.min(2, devicePixelRatio || 1);
+    const w = wrap.clientWidth, h = wrap.scrollHeight;
+    if (inkCv.width !== Math.round(w * dpr) || inkCv.height !== Math.round(h * dpr)) {
+      inkCv.width = Math.round(w * dpr); inkCv.height = Math.round(h * dpr);
+      inkCv.style.width = w + 'px'; inkCv.style.height = h + 'px';
+    }
+  };
+  const strokeStyle = s => {
+    const dark = document.documentElement.classList.contains('dark');
+    if (s.h) return { color: '#ffd84d', alpha: dark ? .32 : .45, width: 16 };
+    return { color: s.c === INK_COLORS.black && dark ? '#e8e8e8' : s.c, alpha: 1, width: s.s };
+  };
+  const drawInkStroke = (s, k, dpr) => {
+    const st = strokeStyle(s), pts = s.pts;
+    inkCtx.globalAlpha = st.alpha; inkCtx.strokeStyle = st.color; inkCtx.lineWidth = st.width * k * dpr;
+    inkCtx.lineCap = s.h ? 'butt' : 'round'; inkCtx.lineJoin = 'round';
+    inkCtx.beginPath();
+    pts.forEach(([x, y], i) => { const X = x * k * dpr, Y = y * k * dpr; if (!i) inkCtx.moveTo(X, Y); else if (i < pts.length - 1) {
+      const [nx, ny] = pts[i + 1]; inkCtx.quadraticCurveTo(X, Y, (X + nx * k * dpr) / 2, (Y + ny * k * dpr) / 2); } else inkCtx.lineTo(X, Y); });
+    if (pts.length === 1) inkCtx.lineTo(pts[0][0] * k * dpr + .1, pts[0][1] * k * dpr);
+    inkCtx.stroke(); inkCtx.globalAlpha = 1;
+  };
+  const drawInk = () => {
+    if (!isDocPage()) return;
+    sizeInk();
+    const ink = docPage().ink, dpr = inkCv.width / (inkCv.clientWidth || 1);
+    inkCtx.clearRect(0, 0, inkCv.width, inkCv.height);
+    if (!ink?.strokes?.length) return;
+    const k = (body().clientWidth || ink.w) / ink.w;
+    ink.strokes.forEach(s => drawInkStroke(s, k, dpr));
+  };
+  new ResizeObserver(() => drawInk()).observe($('#docBody'));
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => setTimeout(drawInk));
+  const saveInk = () => { const p = docPage(); p.updated = now(); save(); };
+  const setPen = on => {
+    pen2.on = on;
+    document.body.classList.toggle('pen-mode', on);
+    if (on) document.activeElement?.blur?.();
+    syncPenBar(); drawInk();
+  };
+  const syncPenBar = () => $('#penBar').querySelectorAll('[data-pen]').forEach(b => {
+    const v = b.dataset.pen;
+    b.classList.toggle('on', v === pen2.mode || (v.startsWith('size') && +v.slice(4) === pen2.size));
+  });
+  let inking = null;
+  const toInk = e => { const r = inkCv.getBoundingClientRect(), ink = inkData(), k = ink.w / (body().clientWidth || ink.w);
+    return [Math.round((e.clientX - r.left) * k * 10) / 10, Math.round((e.clientY - r.top) * k * 10) / 10]; };
+  // Is a point within r of any part of the stroke (its segments, not just its points)?
+  const nearStroke = (st, [px, py], r) => st.pts.some(([x1, y1], i) => {
+    const [x2, y2] = st.pts[i + 1] || [x1, y1], dx = x2 - x1, dy = y2 - y1, L = dx * dx + dy * dy;
+    const t = L ? Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / L)) : 0;
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy)) < r;
+  });
+  const eraseAt = pt => {
+    const ink = inkData(), removed = [];
+    for (let i = ink.strokes.length - 1; i >= 0; i--)
+      if (nearStroke(ink.strokes[i], pt, ink.strokes[i].h ? 16 : 12)) removed.push([i, ink.strokes.splice(i, 1)[0]]);
+    if (removed.length) { undoList().push({ removed }); drawInk(); }
+  };
+  inkCv.addEventListener('pointerdown', e => {
+    if (!pen2.on || e.button > 0) return;
+    e.preventDefault(); inkCv.setPointerCapture(e.pointerId);
+    const pt = toInk(e);
+    if (pen2.mode === 'erase') { inking = { erase: true }; return eraseAt(pt); }
+    const s = pen2.mode === 'hi' ? { h: 1, pts: [pt] } : { c: INK_COLORS[pen2.mode], s: pen2.size, pts: [pt] };
+    inkData().strokes.push(s); undoList().push({ add: s }); inking = { s };
+    drawInk();
+  });
+  inkCv.addEventListener('pointermove', e => {
+    if (!inking) return;
+    const pt = toInk(e);
+    if (inking.erase) return eraseAt(pt);
+    const pts = inking.s.pts, [lx, ly] = pts[pts.length - 1];
+    if (Math.hypot(pt[0] - lx, pt[1] - ly) < 1.5) return;
+    if (inking.s.h) pt[1] = pts[0][1]; // the highlighter keeps to the line, like a real marker
+    pts.push(pt); drawInk();
+  });
+  const inkUp = () => { if (!inking) return; inking = null; saveInk(); };
+  inkCv.addEventListener('pointerup', inkUp); inkCv.addEventListener('pointercancel', inkUp);
+  $('#penBar').addEventListener('pointerdown', e => e.preventDefault());
+  $('#penBar').addEventListener('click', e => {
+    const b = e.target.closest('[data-pen]'); if (!b) return;
+    const v = b.dataset.pen, ink = inkData();
+    if (v === 'done') return setPen(false);
+    if (v === 'undo') {
+      const last = undoList().pop(); if (!last) return;
+      if (last.add) ink.strokes.splice(ink.strokes.lastIndexOf(last.add), 1);
+      else last.removed.slice().reverse().forEach(([i, s]) => ink.strokes.splice(i, 0, s));
+      drawInk(); return saveInk();
+    }
+    if (v === 'clear') {
+      if (!ink.strokes.length || !confirm('Remove all drawing from this page?')) return;
+      undoList().push({ removed: ink.strokes.map((s, i) => [i, s]).reverse() }); ink.strokes = []; drawInk(); return saveInk();
+    }
+    if (v.startsWith('size')) pen2.size = +v.slice(4); else pen2.mode = v;
+    syncPenBar();
+  });
+
   /* ---------- item types ---------- */
   // 'note' is a plain paragraph of text (shown as "Text").
   const TYPES = {
@@ -433,7 +542,7 @@
   const goTo = id => {
     page = id; localStorage.setItem('life-page', id);
     history.replaceState(null, '', '#' + encodeURIComponent(id));
-    picking = moving = null; render(); scrollTo({ top: 0 });
+    picking = moving = null; if (pen2.on) setPen(false); render(); scrollTo({ top: 0 });
   };
 
   const header = () => {
