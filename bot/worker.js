@@ -62,6 +62,8 @@ Every morning I send your day, every evening a short review. Tasks with a time g
   },
 };
 const L = env => T[env.LANG === 'en' ? 'en' : 'fa'];
+// Keep Latin dates and times left-to-right inside Farsi text (otherwise 2026-11-26 shows as 26-11-2026).
+const ltr = x => `\u2066${x}\u2069`;
 
 /* ---------- Telegram ---------- */
 async function tg(env, method, body) {
@@ -84,12 +86,12 @@ const doneButtons = (tasks, env) => tasks.length ? { reply_markup: { inline_keyb
 /* ---------- lists ---------- */
 function dueLabel(due, env) {
   if (!due) return '';
-  const w = L(env), today = dayKey(env), time = due.length > 10 ? ' ' + due.slice(11, 16) : '';
+  const w = L(env), today = dayKey(env), time = due.length > 10 ? ' ' + ltr(due.slice(11, 16)) : '';
   const diff = Math.round((new Date(due.slice(0, 10)) - new Date(today)) / 864e5);
   if (diff < 0) return ` — <b>${w.daysLate(-diff)}</b>`;
   if (diff === 0) return ` — ${w.today}${time}`;
   if (diff === 1) return ` — ${w.tomorrow}${time}`;
-  return ` — ${due.slice(0, 10)}${time}`;
+  return ` — ${ltr(due.slice(0, 10))}${time}`;
 }
 const lines = (s, env, tasks, showBoard = true) => tasks.map(t => `○ ${esc(t.title)}${dueLabel(t.due, env)}${showBoard ? `  <i>${esc(boardName(s, t.boardId))}</i>` : ''}`).join('\n');
 
@@ -98,7 +100,7 @@ function todayView(s, env, greeting = '') {
   const late = open.filter(t => t.due && t.due.slice(0, 10) < today).sort(byDue);
   const due = open.filter(t => t.due && t.due.slice(0, 10) === today).sort(byDue);
   const doneN = live(s.tasks).filter(t => t.doneOn === today).length;
-  let msg = `${greeting ? greeting + '\n' : ''}<b>${persianDate(env)}</b>  ·  ${today}\n`;
+  let msg = `${greeting ? greeting + '\n' : ''}<b>${persianDate(env)}</b>  ·  ${ltr(today)}\n`;
   if (late.length) msg += `\n<b>${w.late}</b>\n${lines(s, env, late)}\n`;
   if (due.length) msg += `\n<b>${w.dueToday}</b>\n${lines(s, env, due)}\n`;
   if (!late.length && !due.length) msg += `\n${w.nothingToday} ${w.open(open.length)}`;
