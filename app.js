@@ -415,12 +415,15 @@
   const SHORTCUTS = [[/^#{1,3}\s/, 'heading'], [/^[-*•]\s/, 'bullet'], [/^\[\s?\]\s/, 'task']];
 
   let renamingPage = null, addMenu = false;
+  // Each page gets its own colour, in tab order, so neighbouring tabs always differ.
+  const PAGE_COLORS = ['#7cc4ff', '#6fdc9a', '#ff8fab', '#b9a4ff', '#ffc566', '#ff9f7a'];
+  const pageColor = id => PAGE_COLORS[Math.max(0, pages().findIndex(p => p.id === id)) % PAGE_COLORS.length];
   const renderNav = () => {
     const cur = currentPage();
     $('#pages').innerHTML = pages().map(p => p.id === renamingPage
       ? `<input class="page-tab editing" data-page="${esc(p.id)}" value="${esc(p.name)}" size="${Math.max(4, [...p.name].length + 1)}" maxlength="30" dir="auto" aria-label="Page name">`
-      : `<button class="page-tab ${p.id === cur ? 'on' : ''}" role="tab" aria-selected="${p.id === cur}" data-page="${esc(p.id)}" title="Double-click to rename">
-           ${p.kind === 'doc' ? '<span class="tab-icon" aria-hidden="true">✎</span>' : ''}<span dir="auto">${esc(p.name)}</span>${p.id === cur && pages().length > 1 ? '<span class="page-del" data-act="delpage" title="Delete page" aria-label="Delete page">×</span>' : ''}
+      : `<button class="page-tab ${p.id === cur ? 'on' : ''}" style="--pc:${pageColor(p.id)}" role="tab" aria-selected="${p.id === cur}" data-page="${esc(p.id)}" title="Double-click to rename">
+           <span class="tab-icon ${p.kind === 'doc' ? 'pen' : 'dot'}" aria-hidden="true">${p.kind === 'doc' ? '✎' : ''}</span><span dir="auto">${esc(p.name)}</span>${p.id === cur && pages().length > 1 ? '<span class="page-del" data-act="delpage" title="Delete page" aria-label="Delete page">×</span>' : ''}
          </button>`).join('') +
       '<button class="page-tab add" data-act="addmenu" title="New page" aria-label="New page">+</button>' +
       (addMenu ? `<span class="add-menu"><button class="page-tab" data-act="addpage" data-kind="boards">▦ Boards</button>

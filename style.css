@@ -500,3 +500,19 @@ button { -webkit-tap-highlight-color: transparent; }
   html { scroll-padding-top: 110px; }
 }
 @media (max-width: 420px) { .topbar .clock-date { display: none; } }
+
+/* ============ tabs: colour instead of a gray box ============ */
+.topbar .page-tab, .topbar .page-tab.on { background: none; border-color: transparent; box-shadow: none; }
+.topbar .page-tab { padding: 8px 12px; gap: 7px; color: #8b9198; }
+.topbar .page-tab:hover:not(.on) { background: none; color: #d6d9de; }
+.topbar .page-tab.on { color: var(--pc); font-weight: 650; }
+.tab-icon.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pc); opacity: .45; flex: none; }
+.tab-icon.pen { color: var(--pc); opacity: .55; font-size: 13px; margin: 0; }
+.page-tab.on .tab-icon { opacity: 1; }
+.page-tab.on .tab-icon.dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc) 22%, transparent); }
+.topbar .page-tab.on .page-del { color: #8b9198; }
+.topbar .page-tab.add { color: #8b9198; }
+.topbar .page-tab.add:hover { color: #fff; }
+.page-tab.on .tab-icon.dot { box-shadow: none; width: 8px; height: 8px; }
+.topbar .new-btn { background: none; border-color: transparent; color: #e6e9ee; padding: 7px 10px; }
+.topbar .new-btn:hover { background: none; color: #fff; }
