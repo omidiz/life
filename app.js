@@ -1098,15 +1098,19 @@
   const TZ = 'Asia/Tehran';
   const fmt = (loc, o) => { try { return new Intl.DateTimeFormat(loc, { timeZone: TZ, ...o }); } catch { return null; } };
   const fTime = fmt('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-  const fDate = fmt('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-  const fFa = fmt('fa-IR-u-ca-persian', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const tick = () => {
     const d = new Date();
     if (fTime) $('#clockTime').textContent = fTime.format(d);
-    if (fDate) $('#clockDate').textContent = fDate.format(d);
-    if (fFa) $('#clockFa').textContent = fFa.format(d);
+
   };
   tick(); setInterval(tick, 1000);
+  // The bar and the date header both stay at the top; keep the things below them clear.
+  const fitSticky = () => {
+    const root = document.documentElement.style;
+    root.setProperty('--nav-h', $('.topbar').offsetHeight + 'px');
+    root.setProperty('--head-h', $('header.top').offsetHeight + 'px');
+  };
+  new ResizeObserver(fitSticky).observe($('.topbar')); new ResizeObserver(fitSticky).observe($('header.top'));
 
   applyTheme(); render();
   if (sync) runSync();

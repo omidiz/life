@@ -516,3 +516,27 @@ button { -webkit-tap-highlight-color: transparent; }
 .page-tab.on .tab-icon.dot { box-shadow: none; width: 8px; height: 8px; }
 .topbar .new-btn { background: none; border-color: transparent; color: #e6e9ee; padding: 7px 10px; }
 .topbar .new-btn:hover { background: none; color: #fff; }
+
+/* ============ date header stays on screen, with the Tehran clock (not in the bar) ============ */
+header.top {
+  position: sticky; top: var(--nav-h, 64px); z-index: 40;
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  margin: -18px -28px 18px; padding: 14px 28px 12px; background: var(--page);
+}
+header.top .date { font-size: 28px; }
+.date-fa { margin-top: 2px; }
+.summary { margin-top: 2px; }
+.clock { display: flex; flex-direction: column; align-items: flex-end; gap: 0; margin: 0; color: var(--muted); }
+.clock-time { font-size: 30px; font-weight: 650; color: var(--fg); font-variant-numeric: tabular-nums; letter-spacing: -.01em; line-height: 1.1; }
+.clock-city { display: inline; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 2px 0 0; }
+.doc-tools { top: calc(var(--nav-h, 64px) + var(--head-h, 100px)); }
+html { scroll-padding-top: calc(var(--nav-h, 64px) + var(--head-h, 100px) + 12px); }
+@media (max-width: 640px) {
+  header.top { margin: -18px -16px 14px; padding: 10px 16px 10px; }
+  header.top .date { font-size: 20px; }
+  .date-fa { font-size: 12.5px; }
+  .summary { font-size: 13px; }
+  .clock-time { font-size: 20px; }
+  .clock-city { font-size: 10px; }
+  html { scroll-padding-top: calc(var(--nav-h, 56px) + var(--head-h, 80px) + 12px); }
+}

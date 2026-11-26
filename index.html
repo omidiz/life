@@ -16,12 +16,6 @@
 <body>
   <nav class="topbar" aria-label="Pages">
     <div class="pages" id="pages" role="tablist"></div>
-    <div class="clock" id="clock" aria-live="off">
-        <span class="clock-date" id="clockDate"></span>
-        <span class="clock-fa" id="clockFa" dir="rtl" lang="fa"></span>
-        <time class="clock-time" id="clockTime"></time>
-        <span class="clock-city">Tehran</span>
-      </div>
     <div class="top-actions">
       <span class="sync-status" id="syncStatus"></span>
       <button class="new-btn" id="newBoardBtn" title="New board">+ New board</button>
@@ -35,6 +29,10 @@
       <h1 class="date" id="date"></h1>
       <div class="date-fa" id="dateFa" dir="rtl" lang="fa"></div>
       <div class="summary" id="summary"></div>
+    </div>
+    <div class="clock" id="clock">
+      <time class="clock-time" id="clockTime"></time>
+      <span class="clock-city">Tehran</span>
     </div>
   </header>
 
