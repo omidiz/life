@@ -79,7 +79,8 @@ export class ChatRoom {
 
   /* ---------- messages and commands ---------- */
   async message(c, tg, m) {
-    const w = words(c), text = (m.text || m.caption || '').trim();
+    // Invisible direction marks (often copied along with Farsi text) must not hide a command.
+    const w = words(c), text = (m.text || m.caption || '').replace(/^[\s\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]+/, '').trim();
     const cmd = text.startsWith('/') ? text.slice(1).split(/[\s@]/)[0].toLowerCase() : null;
     const arg = cmd ? text.replace(/^\/\S+\s*/, '') : '';
 

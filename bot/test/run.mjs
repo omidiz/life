@@ -145,8 +145,8 @@ check('/new clears the conversation', !((await storage.get('chat')) || []).lengt
 
 mark(); await say({ text: '/today' });
 check('/today shows the day', lastText().includes('۱۴'), lastText());
-mark(); await say({ text: '/status' });
-check('/status reports everything', /AI \(aa\)/.test(lastText()) && /Dashboard: 1 pages/.test(lastText()) && /GitHub: can edit/.test(lastText()), lastText());
+mark(); await say({ text: '\u200e /status' });
+check('/status works even with an invisible mark before it', /AI \(aa\)/.test(lastText()) && /Dashboard: 1 pages/.test(lastText()) && /GitHub: can edit/.test(lastText()), lastText());
 
 // reminders and the morning brief
 gist.tasks.push({ id: 'r1', boardId: 'b-study', type: 'task', title: 'قرص', due: nowLocal(), done: false, pos: 9, created: 1, updated: 1 });
