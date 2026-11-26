@@ -569,3 +569,77 @@ html { scroll-padding-top: calc(var(--nav-h, 64px) + var(--head-h, 100px) + 12px
   .pen-mode .pen-bar { flex-wrap: nowrap; overflow-x: auto; margin: 0 -10px 20px; padding: 6px 4px; scrollbar-width: none; }
   .pen-bar > * { flex: none; }
 }
+
+/* ============ notepad sheets: side by side, above and below, resizable ============ */
+.doc { display: block; }
+.doc-bars {
+  position: sticky; top: calc(var(--nav-h, 64px) + var(--head-h, 100px)); z-index: 20;
+  margin: 0 auto 18px; max-width: 100%;
+}
+.doc-bars .doc-tools, .pen-mode .doc-bars .pen-bar {
+  position: static; margin: 0; padding: 6px 12px; justify-content: center;
+  background: var(--panel); border: 1px solid #e7e9ec; border-radius: 14px;
+}
+:root.dark .doc-bars .doc-tools, :root.dark.pen-mode .doc-bars .pen-bar, .dark .pen-mode .doc-bars .pen-bar { border-color: rgba(255,255,255,.06); }
+.pen-mode .doc-bars .pen-bar { justify-content: flex-start; }
+.sheets { display: flex; flex-direction: column; gap: 22px; padding: 4px 18px 40px; }
+.sheet-row { display: flex; gap: 22px; justify-content: safe center; align-items: stretch; overflow-x: auto; padding: 18px 18px; margin: -18px -18px; }
+.sheet { position: relative; flex: none; min-width: 260px; max-width: 1600px; }
+.sheet .doc-paper { width: 100%; max-width: none; min-height: 60vh; height: 100%; padding: 44px 52px; }
+.sheet .doc-body { min-height: 50vh; }
+
+/* + buttons on each side, shown when you point at a sheet */
+.sheet-add, .sheet-del {
+  position: absolute; z-index: 3; width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 16px; line-height: 1;
+  background: var(--panel); color: var(--muted); border: 1px solid #dfe2e6; box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  opacity: 0; transition: opacity .15s;
+}
+.sheet:hover > .sheet-add, .sheet:hover > .sheet-del, .sheet:focus-within > .sheet-add, .sheet:focus-within > .sheet-del { opacity: 1; }
+.sheet-add:hover, .sheet-del:hover { color: var(--fg); border-color: var(--fg); }
+.sheet-add.l { left: -13px; top: 50%; transform: translateY(-50%); }
+.sheet-add.r { right: -13px; top: 50%; transform: translateY(-50%); }
+.sheet-add.t { top: -13px; left: 50%; transform: translateX(-50%); }
+.sheet-add.b { bottom: -13px; left: 50%; transform: translateX(-50%); }
+.sheet-del { top: 10px; right: 10px; font-size: 15px; }
+:root.dark .sheet-add, :root.dark .sheet-del { border-color: #2a2e31; }
+
+/* drag the left or right edge to resize */
+.sheet-edge { position: absolute; top: 24px; bottom: 24px; width: 12px; z-index: 2; cursor: ew-resize; touch-action: none; }
+.sheet-edge.l { left: -6px; } .sheet-edge.r { right: -6px; }
+.sheet-edge::after { content: ''; position: absolute; top: 50%; left: 5px; width: 2px; height: 40px; margin-top: -20px; border-radius: 2px; background: #c9ced4; opacity: 0; transition: opacity .15s; }
+.sheet:hover .sheet-edge::after, body.sizing .sheet-edge::after { opacity: 1; }
+body.sizing, body.sizing * { cursor: ew-resize !important; user-select: none; }
+.pen-mode .sheet-add, .pen-mode .sheet-del, .pen-mode .sheet-edge { display: none; }
+
+@media (max-width: 640px) {
+  .sheets { padding: 0 0 30px; gap: 26px; }
+  .sheet-row { flex-direction: column; overflow: visible; padding: 0; margin: 0; gap: 26px; }
+  .sheet { width: auto !important; min-width: 0; }
+  .sheet .doc-paper { padding: 26px 20px; min-height: 50vh; }
+  .sheet-edge { display: none; }
+  .sheet > .sheet-add, .sheet > .sheet-del { opacity: 1; }
+  .sheet-add.l, .sheet-add.r { display: none; }
+  .doc-bars .doc-tools, .pen-mode .doc-bars .pen-bar { justify-content: flex-start; border-radius: 12px; }
+}
+.sheet-send {
+  position: absolute; z-index: 3; top: 10px; right: 44px; font-size: 12.5px; padding: 4px 10px; border-radius: 14px;
+  background: var(--panel); color: var(--muted); border: 1px solid #dfe2e6; opacity: 0; transition: opacity .15s;
+}
+.sheet:hover > .sheet-send, .sheet:focus-within > .sheet-send { opacity: 1; }
+.sheet-send:hover { color: var(--fg); border-color: var(--fg); }
+.sheet:not(:has(.sheet-del)) > .sheet-send { right: 10px; }
+.send-menu {
+  position: absolute; z-index: 4; top: 42px; right: 10px; display: flex; flex-direction: column; min-width: 160px;
+  background: var(--panel); border: 1px solid #dfe2e6; border-radius: 12px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.1);
+}
+.send-menu[hidden] { display: none; }
+.send-menu .muted { padding: 4px 10px; font-size: 12px; }
+.send-menu button { text-align: start; padding: 7px 10px; border-radius: 8px; font-size: 14px; }
+.send-menu button:hover { background: var(--rule); }
+.pen-mode .sheet-send { display: none; }
+@media (max-width: 640px) { .sheet > .sheet-send { opacity: 1; } }
+.board.just-sent { animation: sent 1.6s ease; }
+@keyframes sent { 0%, 30% { box-shadow: 0 0 0 3px #7cc4ff, 0 12px 30px rgba(0,0,0,.15); } 100% { box-shadow: none; } }
+/* side + buttons sit near the top, so the middle of each edge is free for resizing */
+.sheet-add.l, .sheet-add.r { top: 56px; transform: none; }

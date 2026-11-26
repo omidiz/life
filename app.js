@@ -36,6 +36,11 @@
     if (!Array.isArray(s.pages)) s.pages = [];
     if (!s.pages.some(p => !p.deleted)) s.pages.push({ id: 'p-home', name: 'Home', order: 0, updated: 0 });
     const firstPage = s.pages.filter(p => !p.deleted).sort((a, b) => a.order - b.order)[0].id;
+    s.pages.forEach(p => {
+      if (p.kind !== 'doc' || Array.isArray(p.rows)) return;
+      p.sheets = { s1: { doc: p.doc || '', ink: p.ink || null } }; p.rows = [[{ id: 's1', w: 820 }]];
+      delete p.doc; delete p.ink;
+    });
     s.boards.forEach(b => { if (!b.pageId || !s.pages.some(p => p.id === b.pageId && !p.deleted)) b.pageId = firstPage; });
     s.tasks.forEach(t => {
       t.updated ??= t.created || 0;
@@ -50,6 +55,7 @@
 
   let S;
   try { S = migrate(JSON.parse(localStorage.getItem(KEY))); } catch { S = defaults(); }
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} // keep upgraded data
   // Undo the short-lived 'all boards gray' version: give gray boards their colours back once.
   if (S.grayBoards && !S.colorsBack) {
     live(S.boards).sort((a, b) => a.order - b.order).forEach((b, i) => { if (b.color === 'grey') { b.color = colorFor(i); b.updated = now(); } });
@@ -209,26 +215,161 @@
   const parseDoc = html => { const tpl = document.createElement('template'); tpl.innerHTML = html || ''; return readBlocks(tpl.content); };
   const docHTML = blocks => (blocks.length ? blocks : [{ t: 'p' }]).map(blockHTML).join('');
   const docPage = () => S.pages.find(p => p.id === currentPage());
-  const body = () => $('#docBody');
-  const blockText = () => [...body().querySelectorAll('[data-t]')].map(b => b.innerText).join('\n').trim();
-  const wordCount = () => { const t = blockText(), n = t ? t.split(/\s+/).length : 0; return `${n} word${n === 1 ? '' : 's'}`; };
-  const isEmptyDoc = () => !blockText() && !body().querySelector('figure');
-  const refreshDocUI = () => { body().classList.toggle('empty-doc', isEmptyDoc()); $('#summary').textContent = wordCount(); };
-  let shownDoc = null;
+
+  /* ---------- sheets ----------
+     A notepad page holds sheets of paper laid out in rows: page.rows = [[{id, w}], …]
+     (w = width in px), and each sheet's writing and pen strokes live in page.sheets[id]. */
+  const SHEET_W = 820, NEW_SHEET_W = 560, MIN_W = 260, MAX_W = 1600;
+  const sheetData = id => { const p = docPage(); p.sheets ||= {}; return (p.sheets[id] ||= { doc: '', ink: null }); };
+  const sheets = () => [...document.querySelectorAll('#sheets .sheet')];
+  const sheetOf = el => el?.closest?.('.sheet');
+  let activeSheet = null;
+  const body = () => (activeSheet?.isConnected ? activeSheet : sheets()[0])?.querySelector('.doc-body');
+  const setActive = el => { const s = sheetOf(el); if (s) activeSheet = s; };
+  const sheetHTML = (cell, many) => `
+    <section class="sheet" data-sheet="${esc(cell.id)}" style="width:${cell.w || SHEET_W}px">
+      <button type="button" class="sheet-add l" data-add="left" title="New sheet on the left" aria-label="New sheet on the left">+</button>
+      <button type="button" class="sheet-add r" data-add="right" title="New sheet on the right" aria-label="New sheet on the right">+</button>
+      <button type="button" class="sheet-add t" data-add="up" title="New sheet above" aria-label="New sheet above">+</button>
+      <button type="button" class="sheet-add b" data-add="down" title="New sheet below" aria-label="New sheet below">+</button>
+      <button type="button" class="sheet-send" data-send title="Send this sheet to a board as a card">⇢ Board</button>
+      <div class="send-menu" hidden></div>
+      ${many ? '<button type="button" class="sheet-del" data-sheetdel title="Delete this sheet" aria-label="Delete this sheet">×</button>' : ''}
+      <div class="sheet-edge l" data-edge="l" title="Drag to resize"></div><div class="sheet-edge r" data-edge="r" title="Drag to resize"></div>
+      <div class="doc-paper"><div class="doc-wrap">
+        <div class="doc-body" contenteditable="true" spellcheck="true" dir="auto" data-ph="Start writing…" aria-label="Sheet"></div>
+        <canvas class="ink" aria-hidden="true"></canvas>
+      </div></div>
+    </section>`;
+  const allText = () => [...document.querySelectorAll('#sheets .doc-body [data-t]')].map(b => b.innerText).join('\n').trim();
+  const wordCount = () => { const t = allText(), n = t ? t.split(/\s+/).length : 0; return `${n} word${n === 1 ? '' : 's'}`; };
+  const refreshDocUI = () => {
+    document.querySelectorAll('#sheets .doc-body').forEach(b => b.classList.toggle('empty-doc',
+      ![...b.querySelectorAll('[data-t]')].some(x => x.innerText.trim()) && !b.querySelector('figure')));
+    $('#summary').textContent = wordCount();
+  };
+  let shownLayout = null; const shownDoc = new Map(); // what's on screen, to avoid redrawing needlessly
+  const sheetObserver = new ResizeObserver(() => drawInk());
   const renderDoc = () => {
-    const p = docPage(), key = p.id + '\n' + (p.doc || '');
-    if (document.activeElement !== body() && !pen && key !== shownDoc) { body().innerHTML = docHTML(parseDoc(p.doc)); shownDoc = key; }
+    const p = docPage(), layout = p.id + JSON.stringify(p.rows);
+    const busy = document.activeElement?.closest?.('#sheets') || inking || sizing;
+    if (layout !== shownLayout && !busy) {
+      const many = p.rows.flat().length > 1;
+      $('#sheets').innerHTML = p.rows.map((row, i) => `<div class="sheet-row" data-row="${i}">${row.map(c => sheetHTML(c, many)).join('')}</div>`).join('');
+      shownLayout = layout; shownDoc.clear(); sheetObserver.disconnect();
+      sheets().forEach(s => sheetObserver.observe(s.querySelector('.doc-body')));
+    }
+    sheets().forEach(s => {
+      const id = s.dataset.sheet, d = sheetData(id), b = s.querySelector('.doc-body');
+      if (document.activeElement !== b && shownDoc.get(id) !== d.doc) { b.innerHTML = docHTML(parseDoc(d.doc)); shownDoc.set(id, d.doc); }
+    });
     hydrateSketches(); refreshDocUI(); drawInk();
   };
-  let docTimer;
-  const saveDoc = (now_ = false) => {
-    clearTimeout(docTimer);
-    const run = () => { const p = docPage(); if (!p || p.kind !== 'doc') return; const html = readBlocks(body()).map(blockHTML).join('');
-      if (p.doc !== html) { p.doc = html; p.updated = now(); save(); } shownDoc = p.id + '\n' + html; };
-    now_ ? run() : (docTimer = setTimeout(run, 400));
+  const docTimers = new Map();
+  const saveDoc = (now_ = false, b = body()) => {
+    const s = sheetOf(b); if (!s) return;
+    const id = s.dataset.sheet; clearTimeout(docTimers.get(id));
+    const run = () => { const p = docPage(); if (!p || p.kind !== 'doc' || !b.isConnected) return; const html = readBlocks(b).map(blockHTML).join('');
+      const d = sheetData(id); if (d.doc !== html) { d.doc = html; p.updated = now(); save(); } shownDoc.set(id, html); };
+    now_ ? run() : docTimers.set(id, setTimeout(run, 400));
   };
+  const savePage = () => { const p = docPage(); p.updated = now(); save(); };
+  const rowsWith = id => docPage().rows.findIndex(r => r.some(c => c.id === id));
+  const addSheet = (fromId, where) => {
+    const p = docPage(), id = 's-' + uid(), cell = { id, w: NEW_SHEET_W };
+    sheetData(id);
+    const ri = rowsWith(fromId), row = p.rows[ri], ci = row.findIndex(c => c.id === fromId);
+    if (where === 'left') row.splice(ci, 0, cell);
+    else if (where === 'right') row.splice(ci + 1, 0, cell);
+    else p.rows.splice(where === 'up' ? ri : ri + 1, 0, [{ ...cell, w: row[ci].w || SHEET_W }]);
+    savePage(); shownLayout = null; document.activeElement?.blur?.(); renderDoc();
+    const el = $(`#sheets [data-sheet="${id}"]`); activeSheet = el;
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+    el.querySelector('.doc-body').focus();
+  };
+  // Turn a sheet into a card on a board page: the first heading becomes the title, lists stay lists,
+  // tasks stay tasks, everything else becomes notes. The sheet itself stays where it is.
+  const BOARD_TYPE = { h1: 'heading', h2: 'heading', ul: 'bullet', ol: 'bullet', todo: 'task', quote: 'note', p: 'note' };
+  const sendSheet = (sheetId, targetPage) => {
+    const b = $(`#sheets [data-sheet="${CSS.escape(sheetId)}"] .doc-body`); if (b) saveDoc(true, b);
+    const blocks = parseDoc(sheetData(sheetId).doc).filter(x => x.t !== 'sketch');
+    const plain = html => { const t = document.createElement('template'); t.innerHTML = (html || '').replace(/<br>/g, '\n'); return t.content.textContent.trim(); };
+    const lines = blocks.map(x => ({ ...x, text: plain(x.html) })).filter(x => x.text);
+    if (!lines.length) return alert('This sheet is empty. Write something first.');
+    const titled = lines[0].t === 'h1' || lines[0].t === 'h2';
+    const name = (titled ? lines.shift().text : 'From notes').split('\n')[0].slice(0, 40);
+    const onPage = allBoards().filter(x => x.pageId === targetPage), used = new Set(onPage.map(x => x.color));
+    const board = { id: 'b-' + uid(), pageId: targetPage, name, order: (onPage.at(-1)?.order ?? -1) + 1,
+      color: COLORS.slice(0, -1).find(c => !used.has(c)) || colorFor(onPage.length), updated: now() };
+    S.boards.push(board);
+    lines.forEach((x, i) => {
+      const type = BOARD_TYPE[x.t] || 'note';
+      // keep bold, drop the rest (cards only know bold)
+      const rich = x.html && x.html.includes('<b>') ? showRich(x.html.replace(/<\/?(i|u)>/g, '')) : null;
+      const title = type === 'note' ? x.text : x.text.replace(/\s+/g, ' ');
+      S.tasks.push({ id: uid(), boardId: board.id, type, title, rich,
+        due: null, done: type === 'task' && !!x.c, doneOn: x.c ? dayKey() : null, pos: i, created: now() + i, updated: now() });
+    });
+    save(); goTo(targetPage);
+    setTimeout(() => { const el = $(`[data-board="${CSS.escape(board.id)}"]`); if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('just-sent'); setTimeout(() => el.classList.remove('just-sent'), 1600); } }, 60);
+  };
+  const deleteSheet = id => {
+    const p = docPage(), d = sheetData(id);
+    if ((parseDoc(d.doc).some(b => b.html || b.t === 'sketch') || d.ink?.strokes?.length) && !confirm('Delete this sheet and everything on it?')) return;
+    p.rows = p.rows.map(r => r.filter(c => c.id !== id)).filter(r => r.length);
+    delete p.sheets[id]; savePage(); shownLayout = null; activeSheet = null; document.activeElement?.blur?.(); renderDoc();
+  };
+  // Make a sheet wider or narrower by dragging its left or right edge.
+  let sizing = null;
+  $('#sheets').addEventListener('pointerdown', e => {
+    const edge = e.target.closest('.sheet-edge'); if (!edge || e.button > 0) return;
+    e.preventDefault(); edge.setPointerCapture(e.pointerId);
+    const s = sheetOf(edge), row = s.parentNode;
+    sizing = { s, side: edge.dataset.edge, x: e.clientX, w: s.offsetWidth, k: row.scrollWidth > row.clientWidth + 1 ? 1 : 2 };
+    document.body.classList.add('sizing');
+  });
+  addEventListener('pointermove', e => {
+    if (!sizing) return;
+    const dx = (e.clientX - sizing.x) * (sizing.side === 'r' ? 1 : -1) * sizing.k;
+    sizing.s.style.width = Math.max(MIN_W, Math.min(MAX_W, Math.round(sizing.w + dx))) + 'px';
+  });
+  const endSizing = () => {
+    if (!sizing) return;
+    const { s } = sizing; sizing = null; document.body.classList.remove('sizing');
+    const cell = docPage().rows.flat().find(c => c.id === s.dataset.sheet); if (!cell) return;
+    cell.w = s.offsetWidth; shownLayout = docPage().id + JSON.stringify(docPage().rows); savePage(); drawInk();
+  };
+  addEventListener('pointerup', endSizing); addEventListener('pointercancel', endSizing);
+  $('#sheets').addEventListener('click', e => {
+    const add = e.target.closest('[data-add]'); if (add) return addSheet(sheetOf(add).dataset.sheet, add.dataset.add);
+    const del = e.target.closest('[data-sheetdel]'); if (del) return deleteSheet(sheetOf(del).dataset.sheet);
+    const send = e.target.closest('[data-send]');
+    if (send) {
+      const s = sheetOf(send), targets = pages().filter(p => p.kind !== 'doc');
+      if (targets.length === 1) return sendSheet(s.dataset.sheet, targets[0].id);
+      const menu = s.querySelector('.send-menu');
+      menu.innerHTML = '<span class="muted">Send to</span>' + (targets.length ? targets.map(p => `<button type="button" data-sendto="${esc(p.id)}">${esc(p.name)}</button>`).join('')
+        : '<button type="button" data-sendto="new">New board page</button>');
+      menu.hidden = !menu.hidden; return;
+    }
+    const to = e.target.closest('[data-sendto]');
+    if (to) {
+      let target = to.dataset.sendto;
+      if (target === 'new') { const p = { id: 'p-' + uid(), name: 'Boards', order: (pages().at(-1)?.order ?? -1) + 1, updated: now() }; S.pages.push(p); target = p.id; }
+      return sendSheet(sheetOf(to).dataset.sheet, target);
+    }
+  });
+  // Clicking a sheet's margin puts the cursor at the end of its writing.
+  $('#doc').addEventListener('click', e => {
+    if (pen2.on || !e.target.matches('.doc-paper, .doc-wrap')) return;
+    const b = sheetOf(e.target)?.querySelector('.doc-body'); if (!b) return;
+    activeSheet = sheetOf(b); const last = b.lastElementChild; b.focus();
+    if (last) { const r = document.createRange(); r.selectNodeContents(last); r.collapse(false); getSelection().removeAllRanges(); getSelection().addRange(r); }
+  });
+
   // The block (direct child of the editor) that holds the cursor.
-  const blockOf = n => { while (n && n.parentNode !== body()) n = n.parentNode; return n && n.nodeType === 1 ? n : null; };
+  const blockOf = n => { const b = n?.nodeType === 1 ? n.closest?.('.doc-body') : n?.parentElement?.closest('.doc-body'); if (!b) return null;
+    while (n && n.parentNode !== b) n = n.parentNode; return n && n.nodeType === 1 ? n : null; };
   const curBlock = () => blockOf(getSelection().anchorNode);
   const selectedBlocks = () => {
     const sel = getSelection(); if (!sel.rangeCount) return [];
@@ -238,9 +379,9 @@
     return list;
   };
   const caretAt = (node, offset) => { const r = document.createRange(); r.setStart(node, offset); r.collapse(true); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
-  // Keep the editor made of block <div>s (typing into an emptied editor makes bare text).
-  const normalize = () => {
-    const b = body(), sel = getSelection(), an = sel.anchorNode, ao = sel.anchorOffset;
+  // Keep each sheet made of block <div>s (typing into an emptied editor makes bare text).
+  const normalize = (b = body()) => {
+    const sel = getSelection(), an = sel.anchorNode, ao = sel.anchorOffset;
     let wrap = null;
     [...b.childNodes].forEach(n => {
       if (n.nodeType === 1 && (n.dataset?.t || n.nodeName === 'FIGURE')) { wrap = null; return; }
@@ -254,7 +395,7 @@
   const setBlockType = (blocks, t) => {
     const all = blocks.every(b => b.dataset.t === t);
     blocks.forEach(b => { b.dataset.t = all && t !== 'p' ? 'p' : t; if (b.dataset.t !== 'todo') delete b.dataset.c; });
-    saveDoc(); refreshDocUI();
+    saveDoc(false, blocks[0]?.closest('.doc-body') || body()); refreshDocUI();
   };
   // Markdown-style shortcuts at the start of a line.
   const DOC_SHORTCUTS = [[/^##\s/, 'h2'], [/^#\s/, 'h1'], [/^[-*•]\s/, 'ul'], [/^1[.)]\s/, 'ol'], [/^\[\s?\]\s/, 'todo'], [/^>\s/, 'quote']];
@@ -265,9 +406,12 @@
     r.deleteContents();
   };
 
-  $('#docBody').addEventListener('focus', () => document.execCommand('defaultParagraphSeparator', false, 'div'));
-  $('#docBody').addEventListener('input', e => {
-    normalize();
+  // Typing in any sheet (events are caught for all sheets at once).
+  const inSheet = e => { const b = e.target.closest?.('.doc-body'); if (b) activeSheet = sheetOf(b); return b; };
+  $('#sheets').addEventListener('focusin', e => { if (inSheet(e)) document.execCommand('defaultParagraphSeparator', false, 'div'); });
+  $('#sheets').addEventListener('input', e => {
+    const b = inSheet(e); if (!b) return;
+    normalize(b);
     const blk = curBlock();
     if (blk && e.inputType === 'insertParagraph') {
       // a new line after a heading is plain text; a new task starts unticked
@@ -278,9 +422,10 @@
       const text = blk.textContent, hit = DOC_SHORTCUTS.find(([re]) => re.test(text));
       if (hit && (blk.dataset.t === 'p' || blk.dataset.t !== hit[1])) { deleteFirstChars(blk, text.match(hit[0])[0].length); blk.dataset.t = hit[1]; if (!blk.firstChild) blk.innerHTML = '<br>'; caretAt(blk, 0); }
     }
-    refreshDocUI(); saveDoc();
+    refreshDocUI(); saveDoc(false, b);
   });
-  $('#docBody').addEventListener('keydown', e => {
+  $('#sheets').addEventListener('keydown', e => {
+    const b = inSheet(e); if (!b) return;
     const blk = curBlock(); if (!blk) return;
     const t = blk.dataset.t, empty = !blk.textContent;
     if (e.key === 'Enter' && !e.shiftKey && empty && ['ul', 'ol', 'todo', 'quote'].includes(t)) { e.preventDefault(); setBlockType([blk], 'p'); return; }
@@ -290,48 +435,46 @@
         if (!pre.toString()) { e.preventDefault(); setBlockType([blk], 'p'); return; } } // Backspace at the start undoes the list/heading
     }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && ['b', 'i', 'u'].includes(e.key.toLowerCase())) {
-      e.preventDefault(); document.execCommand({ b: 'bold', i: 'italic', u: 'underline' }[e.key.toLowerCase()]); saveDoc();
+      e.preventDefault(); document.execCommand({ b: 'bold', i: 'italic', u: 'underline' }[e.key.toLowerCase()]); saveDoc(false, b);
     }
     if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
   });
-  $('#docBody').addEventListener('focusout', () => { saveDoc(true); if (renderPending) setTimeout(() => { if (!editing()) render(); }, 0); });
-  $('#docBody').addEventListener('paste', e => { e.preventDefault(); document.execCommand('insertText', false, e.clipboardData?.getData('text/plain') || ''); });
-  // Tick tasks; edit or delete drawings.
-  $('#docBody').addEventListener('click', e => {
+  $('#sheets').addEventListener('focusout', e => {
+    const b = e.target.closest?.('.doc-body'); if (!b) return;
+    saveDoc(true, b);
+    setTimeout(() => { if (!editing()) { if (renderPending) render(); else if (shownLayout !== docPage()?.id + JSON.stringify(docPage()?.rows)) renderDoc(); } }, 0);
+  });
+  $('#sheets').addEventListener('paste', e => { if (!inSheet(e)) return; e.preventDefault(); document.execCommand('insertText', false, e.clipboardData?.getData('text/plain') || ''); });
+  // Tick tasks; use the bar of an older drawing.
+  $('#sheets').addEventListener('click', e => {
     const skBtn = e.target.closest('[data-sk]');
     if (skBtn) return sketchAction(skBtn);
-    const blk = e.target.closest('[data-t=todo]'); if (!blk || blk.parentNode !== body()) return;
+    const blk = e.target.closest('[data-t=todo]'); if (!blk || !blk.parentNode.classList.contains('doc-body')) return;
     const r = blk.getBoundingClientRect(), rtl = getComputedStyle(blk).direction === 'rtl';
     if (rtl ? e.clientX > r.right - 30 : e.clientX < r.left + 30) {
       if (blk.dataset.c) delete blk.dataset.c; else blk.dataset.c = '1';
-      saveDoc(true);
+      saveDoc(true, blk.parentNode);
     }
   });
-  $('#doc').addEventListener('click', e => {
-    if (e.target.id !== 'doc' && !e.target.classList.contains('doc-paper')) return;
-    const last = body().lastElementChild; body().focus();
-    if (last) { const r = document.createRange(); r.selectNodeContents(last); r.collapse(false); getSelection().removeAllRanges(); getSelection().addRange(r); }
-  });
-  // Toolbar: keep the text selection while clicking it.
+  // Toolbar: works on the sheet you're writing in; keeps the text selection while clicking it.
   $('#docTools').addEventListener('pointerdown', e => { if (e.target.closest('button')) e.preventDefault(); });
-  $('#docBody').addEventListener('pointerdown', e => { if (e.target.closest('.sk-bar')) e.preventDefault(); });
+  $('#sheets').addEventListener('pointerdown', e => { if (e.target.closest('.sk-bar')) e.preventDefault(); });
   $('#docTools').addEventListener('click', e => {
     const btn = e.target.closest('button[data-cmd]'); if (!btn) return;
     const cmd = btn.dataset.cmd;
-    if (document.activeElement !== body()) { body().focus(); }
-    let blocks = selectedBlocks(); if (!blocks.length) { normalize(); blocks = [body().lastElementChild].filter(b => b?.dataset.t); }
+    if (cmd === 'draw') return setPen(!pen2.on);
+    const b = body(); if (!b) return;
+    if (document.activeElement !== b) b.focus();
+    let blocks = selectedBlocks(); if (!blocks.length) { normalize(b); blocks = [b.lastElementChild].filter(x => x?.dataset.t); }
     if (BLOCKS.includes(cmd)) return setBlockType(blocks, cmd);
-    if (cmd === 'bold' || cmd === 'italic' || cmd === 'underline') { document.execCommand(cmd); return saveDoc(); }
+    if (cmd === 'bold' || cmd === 'italic' || cmd === 'underline') { document.execCommand(cmd); return saveDoc(false, b); }
     if (cmd === 'dir') { // auto → right-to-left → left-to-right → auto
       const next = { auto: 'rtl', rtl: 'ltr', ltr: 'auto' }[blocks[0]?.getAttribute('dir') || 'auto'];
-      blocks.forEach(b => b.setAttribute('dir', next)); return saveDoc(true);
+      blocks.forEach(x => x.setAttribute('dir', next)); return saveDoc(true, b);
     }
-    if (cmd === 'draw') return setPen(!pen2.on);
   });
 
-  /* ---------- drawing right on the page ----------
-     A drawing is a block with a canvas you draw on directly. After each stroke the
-     picture is kept in the block (data-src, a checked data:image URL) and saved. */
+  /* ---------- drawing blocks made by an earlier version (still shown and editable) ---------- */
   const PEN_COLORS = [['#1f2328', 'Black'], ['#8b9198', 'Gray'], ['#d64545', 'Red'], ['#2f6fd1', 'Blue'], ['#2f9e5a', 'Green'], ['#e8a317', 'Yellow']];
   const PEN_SIZES = [[2, 4, 'Thin'], [4, 7, 'Medium'], [9, 12, 'Thick']];
   const tool = { color: '#1f2328', size: 4, erase: false };
@@ -341,13 +484,12 @@
       `<button type="button" class="sk-size${s === tool.size ? ' on' : ''}" data-sk="size" data-v="${s}" style="--d:${d}px" aria-label="${n}"></button>`).join('')}
     <span class="sep"></span><button type="button" data-sk="erase" class="${tool.erase ? 'on' : ''}">Eraser</button><button type="button" data-sk="undo">Undo</button><button type="button" data-sk="clear">Clear</button>
     <button type="button" class="sk-del" data-sk="del" aria-label="Delete drawing" title="Delete drawing">×</button></div>`;
-  const syncBars = () => body().querySelectorAll('.sk-bar').forEach(bar => {
+  const syncBars = () => document.querySelectorAll('#sheets .sk-bar').forEach(bar => {
     bar.querySelectorAll('[data-sk=color]').forEach(b => b.classList.toggle('on', !tool.erase && b.dataset.v === tool.color));
     bar.querySelectorAll('[data-sk=size]').forEach(b => b.classList.toggle('on', +b.dataset.v === tool.size));
     bar.querySelector('[data-sk=erase]').classList.toggle('on', tool.erase);
   });
-  // Size each canvas to its block and paint the saved picture back onto it.
-  const hydrateSketches = (force = false) => body().querySelectorAll('figure.sketch').forEach(fig => {
+  const hydrateSketches = (force = false) => document.querySelectorAll('#sheets figure.sketch').forEach(fig => {
     const cv = fig.querySelector('canvas'); const w = cv?.clientWidth; if (!w || (!force && +cv.dataset.w === w)) return;
     const dpr = Math.min(2, devicePixelRatio || 1), src = fig.dataset.src;
     const setup = ratio => { const h = Math.round(w * ratio); cv.style.height = h + 'px'; cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.dataset.w = w; };
@@ -355,16 +497,16 @@
     else setup(innerWidth < 640 ? 0.8 : 0.5);
   });
   let resizeT; addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => isDocPage() && hydrateSketches(true), 200); });
-  const undoStack = new WeakMap(); // figure → earlier pictures, for Undo
+  const undoStack = new WeakMap();
   const paintSrc = (fig, src) => {
     const cv = fig.querySelector('canvas'), ctx = cv.getContext('2d');
     ctx.globalCompositeOperation = 'source-over'; ctx.clearRect(0, 0, cv.width, cv.height);
     fig.dataset.src = src || '';
     if (src) { const img = new Image(); img.onload = () => ctx.drawImage(img, 0, 0, cv.width, cv.height); img.src = src; }
-    saveDoc(true);
+    saveDoc(true, fig.closest('.doc-body'));
   };
   let pen = null;
-  $('#docBody').addEventListener('pointerdown', e => {
+  $('#sheets').addEventListener('pointerdown', e => {
     const cv = e.target.closest('canvas.sk-canvas'); if (!cv || e.button > 0) return;
     e.preventDefault(); cv.setPointerCapture(e.pointerId);
     const fig = cv.closest('figure'), ctx = cv.getContext('2d'), r = cv.getBoundingClientRect(), k = cv.width / r.width;
@@ -380,7 +522,7 @@
     const { ctx, r, k } = pen, x = (e.clientX - r.left) * k, y = (e.clientY - r.top) * k;
     ctx.beginPath(); ctx.moveTo(pen.x, pen.y); ctx.lineTo(x, y); ctx.stroke(); pen.x = x; pen.y = y;
   });
-  const penUp = () => { if (!pen) return; const { cv, fig } = pen; pen = null; fig.dataset.src = cv.toDataURL('image/png'); saveDoc(true); };
+  const penUp = () => { if (!pen) return; const { cv, fig } = pen; pen = null; fig.dataset.src = cv.toDataURL('image/png'); saveDoc(true, fig.closest('.doc-body')); };
   addEventListener('pointerup', penUp); addEventListener('pointercancel', penUp);
   const sketchAction = (btn) => {
     const fig = btn.closest('figure'), act = btn.dataset.sk;
@@ -389,64 +531,47 @@
     else if (act === 'erase') tool.erase = !tool.erase;
     else if (act === 'undo') { const st = undoStack.get(fig); if (st?.length) paintSrc(fig, st.pop()); }
     else if (act === 'clear') { if (fig.dataset.src && confirm('Clear this drawing?')) { (undoStack.get(fig) || undoStack.set(fig, []).get(fig)).push(fig.dataset.src); paintSrc(fig, ''); } }
-    else if (act === 'del') { if (!fig.dataset.src || confirm('Delete this drawing?')) { fig.remove(); normalize(); saveDoc(true); refreshDocUI(); } }
+    else if (act === 'del') { if (!fig.dataset.src || confirm('Delete this drawing?')) { const b = fig.closest('.doc-body'); fig.remove(); normalize(b); saveDoc(true, b); refreshDocUI(); } }
     syncBars();
   };
-  // Put a new drawing area after the line you're on, with a fresh line under it to keep writing.
-  const insertSketch = after => {
-    const holder = document.createElement('template'); holder.innerHTML = blockHTML({ t: 'sketch', src: '' }) + blockHTML({ t: 'p' });
-    const fig = holder.content.firstChild, nextLine = holder.content.lastChild;
-    body().insertBefore(holder.content, after && after.parentNode === body() ? after.nextSibling : null);
-    body().focus(); caretAt(nextLine, 0); // keep writing under the drawing
-    hydrateSketches(); refreshDocUI(); saveDoc(true);
-    fig.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  };
 
-  /* ---------- pen on top of the notes ----------
-     ✎ Draw turns on pen mode: a see-through layer over the whole page catches the
-     pen, so you can tick, circle, underline or highlight text and scribble beside it.
-     Strokes are kept as points (page.ink), scaled to the page width when shown. */
+  /* ---------- pen on top of the sheets ----------
+     ✎ Draw turns on pen mode: a see-through layer over every sheet catches the pen,
+     so you can tick, circle, underline or highlight text and scribble beside it.
+     Strokes are kept as points per sheet, scaled to the sheet's width when shown. */
   const INK_COLORS = { black: '#1f2328', red: '#d64545', blue: '#2f6fd1', green: '#2f9e5a' };
   const pen2 = { mode: 'black', size: 3, on: false };
-  const inkCv = $('#ink'), inkCtx = inkCv.getContext('2d');
-  const inkData = () => { const p = docPage(); if (!p.ink) p.ink = { w: body().clientWidth || 700, strokes: [] }; return p.ink; };
-  const inkUndo = new Map(); // page id → list of { add } / { removed: [[index, stroke]] }
+  const inkOf = s => { const d = sheetData(s.dataset.sheet); return (d.ink ||= { w: s.querySelector('.doc-body').clientWidth || 700, strokes: [] }); };
+  const inkUndo = new Map(); // page id → [{ sid, add } | { sid, removed: [[index, stroke]] }]
   const undoList = () => (inkUndo.get(currentPage()) || inkUndo.set(currentPage(), []).get(currentPage()));
-  const sizeInk = () => {
-    const wrap = $('#docWrap'), dpr = Math.min(2, devicePixelRatio || 1);
-    const w = wrap.clientWidth, h = wrap.scrollHeight;
-    if (inkCv.width !== Math.round(w * dpr) || inkCv.height !== Math.round(h * dpr)) {
-      inkCv.width = Math.round(w * dpr); inkCv.height = Math.round(h * dpr);
-      inkCv.style.width = w + 'px'; inkCv.style.height = h + 'px';
-    }
-  };
   const strokeStyle = s => {
     const dark = document.documentElement.classList.contains('dark');
     if (s.h) return { color: '#ffd84d', alpha: dark ? .32 : .45, width: 16 };
     return { color: s.c === INK_COLORS.black && dark ? '#e8e8e8' : s.c, alpha: 1, width: s.s };
   };
-  const drawInkStroke = (s, k, dpr) => {
+  const drawInkStroke = (ctx, s, k, dpr) => {
     const st = strokeStyle(s), pts = s.pts;
-    inkCtx.globalAlpha = st.alpha; inkCtx.strokeStyle = st.color; inkCtx.lineWidth = st.width * k * dpr;
-    inkCtx.lineCap = s.h ? 'butt' : 'round'; inkCtx.lineJoin = 'round';
-    inkCtx.beginPath();
-    pts.forEach(([x, y], i) => { const X = x * k * dpr, Y = y * k * dpr; if (!i) inkCtx.moveTo(X, Y); else if (i < pts.length - 1) {
-      const [nx, ny] = pts[i + 1]; inkCtx.quadraticCurveTo(X, Y, (X + nx * k * dpr) / 2, (Y + ny * k * dpr) / 2); } else inkCtx.lineTo(X, Y); });
-    if (pts.length === 1) inkCtx.lineTo(pts[0][0] * k * dpr + .1, pts[0][1] * k * dpr);
-    inkCtx.stroke(); inkCtx.globalAlpha = 1;
+    ctx.globalAlpha = st.alpha; ctx.strokeStyle = st.color; ctx.lineWidth = st.width * k * dpr;
+    ctx.lineCap = s.h ? 'butt' : 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => { const X = x * k * dpr, Y = y * k * dpr; if (!i) ctx.moveTo(X, Y); else if (i < pts.length - 1) {
+      const [nx, ny] = pts[i + 1]; ctx.quadraticCurveTo(X, Y, (X + nx * k * dpr) / 2, (Y + ny * k * dpr) / 2); } else ctx.lineTo(X, Y); });
+    if (pts.length === 1) ctx.lineTo(pts[0][0] * k * dpr + .1, pts[0][1] * k * dpr);
+    ctx.stroke(); ctx.globalAlpha = 1;
   };
-  const drawInk = () => {
-    if (!isDocPage()) return;
-    sizeInk();
-    const ink = docPage().ink, dpr = inkCv.width / (inkCv.clientWidth || 1);
-    inkCtx.clearRect(0, 0, inkCv.width, inkCv.height);
-    if (!ink?.strokes?.length) return;
-    const k = (body().clientWidth || ink.w) / ink.w;
-    ink.strokes.forEach(s => drawInkStroke(s, k, dpr));
+  const drawSheetInk = s => {
+    const cv = s.querySelector('canvas.ink'), wrap = s.querySelector('.doc-wrap'), b = s.querySelector('.doc-body'), ctx = cv.getContext('2d');
+    const dpr = Math.min(2, devicePixelRatio || 1), w = wrap.clientWidth, h = wrap.scrollHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.width = w + 'px'; cv.style.height = h + 'px';
+    }
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const ink = sheetData(s.dataset.sheet).ink; if (!ink?.strokes?.length) return;
+    const k = (b.clientWidth || ink.w) / ink.w;
+    ink.strokes.forEach(st => drawInkStroke(ctx, st, k, dpr));
   };
-  new ResizeObserver(() => drawInk()).observe($('#docBody'));
+  const drawInk = () => { if (isDocPage()) sheets().forEach(drawSheetInk); };
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => setTimeout(drawInk));
-  const saveInk = () => { const p = docPage(); p.updated = now(); save(); };
   const setPen = on => {
     pen2.on = on;
     document.body.classList.toggle('pen-mode', on);
@@ -458,7 +583,7 @@
     b.classList.toggle('on', v === pen2.mode || (v.startsWith('size') && +v.slice(4) === pen2.size));
   });
   let inking = null;
-  const toInk = e => { const r = inkCv.getBoundingClientRect(), ink = inkData(), k = ink.w / (body().clientWidth || ink.w);
+  const toInk = (s, e) => { const r = s.querySelector('canvas.ink').getBoundingClientRect(), ink = inkOf(s), k = ink.w / (s.querySelector('.doc-body').clientWidth || ink.w);
     return [Math.round((e.clientX - r.left) * k * 10) / 10, Math.round((e.clientY - r.top) * k * 10) / 10]; };
   // Is a point within r of any part of the stroke (its segments, not just its points)?
   const nearStroke = (st, [px, py], r) => st.pts.some(([x1, y1], i) => {
@@ -466,46 +591,49 @@
     const t = L ? Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / L)) : 0;
     return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy)) < r;
   });
-  const eraseAt = pt => {
-    const ink = inkData(), removed = [];
+  const eraseAt = (s, pt) => {
+    const ink = inkOf(s), removed = [];
     for (let i = ink.strokes.length - 1; i >= 0; i--)
       if (nearStroke(ink.strokes[i], pt, ink.strokes[i].h ? 16 : 12)) removed.push([i, ink.strokes.splice(i, 1)[0]]);
-    if (removed.length) { undoList().push({ removed }); drawInk(); }
+    if (removed.length) { undoList().push({ sid: s.dataset.sheet, removed }); drawSheetInk(s); }
   };
-  inkCv.addEventListener('pointerdown', e => {
-    if (!pen2.on || e.button > 0) return;
-    e.preventDefault(); inkCv.setPointerCapture(e.pointerId);
-    const pt = toInk(e);
-    if (pen2.mode === 'erase') { inking = { erase: true }; return eraseAt(pt); }
-    const s = pen2.mode === 'hi' ? { h: 1, pts: [pt] } : { c: INK_COLORS[pen2.mode], s: pen2.size, pts: [pt] };
-    inkData().strokes.push(s); undoList().push({ add: s }); inking = { s };
-    drawInk();
+  $('#sheets').addEventListener('pointerdown', e => {
+    const cv = e.target.closest('canvas.ink'); if (!cv || !pen2.on || e.button > 0) return;
+    e.preventDefault(); cv.setPointerCapture(e.pointerId);
+    const s = sheetOf(cv), pt = toInk(s, e);
+    if (pen2.mode === 'erase') { inking = { s, erase: true }; return eraseAt(s, pt); }
+    const st = pen2.mode === 'hi' ? { h: 1, pts: [pt] } : { c: INK_COLORS[pen2.mode], s: pen2.size, pts: [pt] };
+    inkOf(s).strokes.push(st); undoList().push({ sid: s.dataset.sheet, add: st }); inking = { s, st };
+    drawSheetInk(s);
   });
-  inkCv.addEventListener('pointermove', e => {
+  $('#sheets').addEventListener('pointermove', e => {
     if (!inking) return;
-    const pt = toInk(e);
-    if (inking.erase) return eraseAt(pt);
-    const pts = inking.s.pts, [lx, ly] = pts[pts.length - 1];
+    const pt = toInk(inking.s, e);
+    if (inking.erase) return eraseAt(inking.s, pt);
+    const pts = inking.st.pts, [lx, ly] = pts[pts.length - 1];
     if (Math.hypot(pt[0] - lx, pt[1] - ly) < 1.5) return;
-    if (inking.s.h) pt[1] = pts[0][1]; // the highlighter keeps to the line, like a real marker
-    pts.push(pt); drawInk();
+    if (inking.st.h) pt[1] = pts[0][1]; // the highlighter keeps to the line, like a real marker
+    pts.push(pt); drawSheetInk(inking.s);
   });
-  const inkUp = () => { if (!inking) return; inking = null; saveInk(); };
-  inkCv.addEventListener('pointerup', inkUp); inkCv.addEventListener('pointercancel', inkUp);
+  const inkUp = () => { if (!inking) return; inking = null; savePage(); };
+  addEventListener('pointerup', inkUp); addEventListener('pointercancel', inkUp);
   $('#penBar').addEventListener('pointerdown', e => e.preventDefault());
   $('#penBar').addEventListener('click', e => {
     const b = e.target.closest('[data-pen]'); if (!b) return;
-    const v = b.dataset.pen, ink = inkData();
+    const v = b.dataset.pen;
     if (v === 'done') return setPen(false);
     if (v === 'undo') {
       const last = undoList().pop(); if (!last) return;
+      const ink = sheetData(last.sid).ink; if (!ink) return;
       if (last.add) ink.strokes.splice(ink.strokes.lastIndexOf(last.add), 1);
-      else last.removed.slice().reverse().forEach(([i, s]) => ink.strokes.splice(i, 0, s));
-      drawInk(); return saveInk();
+      else last.removed.slice().reverse().forEach(([i, st]) => ink.strokes.splice(i, 0, st));
+      drawInk(); return savePage();
     }
     if (v === 'clear') {
-      if (!ink.strokes.length || !confirm('Remove all drawing from this page?')) return;
-      undoList().push({ removed: ink.strokes.map((s, i) => [i, s]).reverse() }); ink.strokes = []; drawInk(); return saveInk();
+      const withInk = sheets().filter(s => sheetData(s.dataset.sheet).ink?.strokes?.length);
+      if (!withInk.length || !confirm('Remove all pen drawing from this page?')) return;
+      withInk.forEach(s => { const ink = sheetData(s.dataset.sheet).ink; undoList().push({ sid: s.dataset.sheet, removed: ink.strokes.map((st, i) => [i, st]).reverse() }); ink.strokes = []; });
+      drawInk(); return savePage();
     }
     if (v.startsWith('size')) pen2.size = +v.slice(4); else pen2.mode = v;
     syncPenBar();
@@ -623,7 +751,7 @@
 
   let moving = null;
   let renderPending = false, picking = null, dueEditing = null, quiet = false;
-  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .due-edit input, #docBody') || !!drag || !!cardDrag || !!pen;
+  const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .due-edit input, #sheets .doc-body') || !!drag || !!cardDrag || !!pen || !!inking || !!sizing;
   const isDocPage = () => S.pages.find(p => p.id === currentPage())?.kind === 'doc';
   const render = () => {
     renderPending = false;
@@ -812,13 +940,13 @@
     if (el.dataset.act === 'addpage') {
       addMenu = false;
       const doc = el.dataset.kind === 'doc';
-      const p = { id: 'p-' + uid(), name: doc ? 'Notes' : 'New page', order: (pages().at(-1)?.order ?? -1) + 1, updated: now(), ...(doc && { kind: 'doc', doc: '' }) };
+      const p = { id: 'p-' + uid(), name: doc ? 'Notes' : 'New page', order: (pages().at(-1)?.order ?? -1) + 1, updated: now(), ...(doc && { kind: 'doc', sheets: { s1: { doc: '', ink: null } }, rows: [[{ id: 's1', w: 820 }]] }) };
       S.pages.push(p); save(); goTo(p.id); return startRename(p.id);
     }
     if (el.dataset.act === 'delpage') {
       e.stopPropagation();
       const p = S.pages.find(x => x.id === currentPage()), list = boards();
-      if (!confirm(`Delete the page "${p.name}"${p.kind === 'doc' && p.doc ? ' and everything written on it' : ''}${list.length ? ` and its ${list.length} board${list.length > 1 ? 's' : ''}` : ''}?`)) return;
+      if (!confirm(`Delete the page "${p.name}"${p.kind === 'doc' && Object.values(p.sheets || {}).some(x => x.doc || x.ink?.strokes?.length) ? ' and everything written on it' : ''}${list.length ? ` and its ${list.length} board${list.length > 1 ? 's' : ''}` : ''}?`)) return;
       remove(p);
       list.forEach(bd => { remove(bd); S.tasks.filter(t => t.boardId === bd.id && !t.deleted).forEach(remove); });
       save(); return goTo(pages()[0].id);
