@@ -8,6 +8,7 @@ import { think, checkAI } from './brain.js';
 import { mdToHtml, splitMd } from './format.js';
 import { makeImage, transcribe } from './media.js';
 export { ChatRoom } from './room.js';
+import { devEnabled, proposalView, applyProposal, undoCommit, buildResult } from './dev.js';
 import { open, esc, live, isTask, boardList, boardName, openTasks, byDue, dayKey, nowKey, addDays, addMinutes, persianDate, inbox, addItem, findBoard } from './data.js';
 
 /* ---------- words (Farsi by default, LANG = "en" for English) ---------- */
@@ -238,7 +239,8 @@ async function onMessage(env, m) {
       `✓ Dashboard: ${live(data.s.pages).length} pages, ${live(data.s.boards).length} boards, ${openTasks(data.s).length} open tasks`,
       ai,
       `${env.IMAGE_MODEL ? '✓ Pictures: ' + esc(env.IMAGE_MODEL) : '✓ Pictures: free service (Pollinations)'}`,
-      `${env.STT_MODEL ? '✓ Voice: ' + esc(env.STT_MODEL) : '✗ Voice: not set up (STT_MODEL)'}`,
+      `${env.STT_MODEL ? '✓ Voice: ' + esc(env.STT_MODEL) : '✓ Voice: straight to the model'}`,
+      `${devEnabled(env) ? '✓ GitHub: can edit ' + esc(env.GITHUB_REPO || 'omidiz/life') : '✗ GitHub: not connected (GITHUB_REPO_TOKEN)'}`,
       data.bot.lastError ? `\nLast problem: <code>${esc(data.bot.lastError)}</code>` : '',
     ].join('\n'));
   }
@@ -264,12 +266,40 @@ async function onMessage(env, m) {
 
     const quoted = m.reply_to_message?.text || m.reply_to_message?.caption;
     const answer = await think(env, data, { text: [quoted && `(replying to: "${quoted}")`, text].filter(Boolean).join('\n'), parts: att.parts, label: att.label });
+    const showProposal = data.bot.showProposal; delete data.bot.showProposal;
     await data.save();
     await sendAnswer(env, answer);
+    if (showProposal && data.bot.proposal) { const v = proposalView(data.bot.proposal); await send(env, v.text, { reply_markup: v.reply_markup }); }
   } finally { stop(); }
 }
 
+// ✅ Apply / ✖ Cancel / ↩️ Undo for changes to the bot's own code.
+async function onDevButton(env, q) {
+  const [, act, id] = q.data.split(':'), data = await open(env), p = data.bot.proposal;
+  const answer = text => tg(env, 'answerCallbackQuery', { callback_query_id: q.id, text });
+  const clearButtons = () => q.message && tg(env, 'editMessageReplyMarkup', { chat_id: q.message.chat.id, message_id: q.message.message_id, reply_markup: { inline_keyboard: [] } });
+  if (act === 'cancel') { if (p?.id === id) delete data.bot.proposal; await data.save(); await clearButtons(); return answer('✖'); }
+  if (act === 'apply') {
+    if (!p || p.id !== id) { await clearButtons(); return answer('This proposal is no longer available.'); }
+    await answer('…');
+    const c = await applyProposal(env, p);
+    delete data.bot.proposal;
+    data.bot.pendingBuild = { sha: c.sha, at: Date.now() };
+    await data.save(); await clearButtons();
+    return send(env, `✅ Applied: <a href="${c.url}">${c.sha.slice(0, 7)}</a>\nCloudflare is building the new version (about a minute). I'll tell you when it's live.`,
+      { reply_markup: { inline_keyboard: [[{ text: '↩️ Undo', callback_data: `dev:undo:${c.sha}` }]] } });
+  }
+  if (act === 'undo') {
+    await answer('…');
+    const c = await undoCommit(env, id);
+    data.bot.pendingBuild = { sha: c.sha, at: Date.now() };
+    await data.save(); await clearButtons();
+    return send(env, `↩️ Undone (${c.sha.slice(0, 7)}). Cloudflare is building the previous version again.`);
+  }
+}
+
 async function onButton(env, q) {
+  if (q.data?.startsWith('dev:')) return onDevButton(env, q);
   const w = L(env), [act, id] = (q.data || '').split(':');
   const data = await open(env), t = data.s.tasks.find(t => t.id === id && !t.deleted);
   const answer = text => tg(env, 'answerCallbackQuery', { callback_query_id: q.id, text });
@@ -293,6 +323,12 @@ export async function handleUpdate(env, u) {
   } catch (e) {
     console.error(e);
     await send(env, `⚠️ ${L(env).error} ${esc(e.message || String(e))}`);
+    try { // remembered, so the bot can look into its own problems
+      const d = await open(env);
+      (d.bot.errors ||= []).push({ at: Date.now(), where: u.message ? 'message' : 'button', message: String(e.stack || e.message || e).slice(0, 800) });
+      d.bot.errors = d.bot.errors.slice(-15);
+      await d.save();
+    } catch {}
   }
 }
 
@@ -310,6 +346,15 @@ async function tick(env) {
     ]] } });
   }
   for (const id of Object.keys(bot.reminded)) if (!s.tasks.some(t => t.id === id && !t.deleted && !t.done)) delete bot.reminded[id];
+
+  // Tell the user when a change to the bot's code is live (or failed to build).
+  if (bot.pendingBuild && devEnabled(env)) {
+    const r = await buildResult(env, bot.pendingBuild.sha);
+    if (r) {
+      await send(env, r.ok ? '🚀 The new version is live.' : `❌ Cloudflare could not build the new version, so the old one keeps running.\n<code>${esc(r.text)}</code>${r.url ? `\n<a href="${r.url}">Details</a>` : ''}\nAsk me to fix it, or press Undo.`);
+      delete bot.pendingBuild;
+    } else if (Date.now() - bot.pendingBuild.at > 30 * 60000) delete bot.pendingBuild;
+  }
 
   const morning = env.MORNING ?? '08:00', evening = env.EVENING ?? '21:00';
   if (morning && hm >= morning && bot.morningOn !== today) {

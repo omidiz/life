@@ -12,6 +12,7 @@ TZ = "Asia/Tehran"     # your time zone
 LANG = "fa"            # "fa" or "en": the language of briefs, reminders and buttons (chat follows your language)
 MORNING = "08:00"      # morning brief time; "" to turn it off
 EVENING = "21:00"      # evening review time; "" to turn it off
+GITHUB_REPO = "omidiz/life"  # the repository the bot may edit (with the GITHUB_REPO_TOKEN secret)
 
 # The bot's "room", where messages are answered in the background (free plan included).
 [[durable_objects.bindings]]

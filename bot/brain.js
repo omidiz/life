@@ -3,6 +3,7 @@
 // A tool the AI can call: a name, what it does, its inputs (JSON Schema) and the code that runs.
 const tool = t => t;
 import { makeImage } from './media.js';
+import { devTools, devEnabled } from './dev.js';
 import {
   live, isTask, boardList, pageList, findBoard, boardName, createBoard, inbox, addItem, openTasks, byDue,
   notepadText, nowKey, persianDate, weekdayName,
@@ -38,6 +39,19 @@ The dashboard (use these tools only when the message is about tasks, plans, remi
 - A photo of a list, a whiteboard or a schedule: add its tasks only if the user wants that; otherwise just talk about it.
 - When you list tasks: one per line with "○ ", deadlines in a friendly way (today, tomorrow 18:00, 2 days late).
 - Never mention ids, tools or JSON.`;
+
+const DEV = `
+
+Your own code (you can improve yourself):
+- The GitHub repository holds your code in bot/ (worker.js: Telegram, commands, buttons, reminders; brain.js: you, your
+  instructions and tools; data.js: the dashboard data; format.js; media.js; dev.js; room.js; wrangler.toml: settings;
+  README.md: the Farsi guide) and the dashboard web app at the top level (index.html, app.js, style.css).
+- When the user asks to change how you or the dashboard work, or something is broken: look (repo_list, repo_read,
+  bot_errors), find the cause, then call propose_change with the complete new content of each file. Change only what is
+  needed, keep everything else exactly as it is, keep the code style, and make sure the JavaScript stays valid.
+- Nothing changes until the user presses Apply. Then Cloudflare rebuilds you in about a minute.
+- Never put keys, tokens or passwords in files: they belong in Cloudflare (Settings → Variables and Secrets),
+  which the user sets themselves. Settings such as AI_URL / AI_MODEL are also there.`;
 
 const itemView = (s, t) => ({
   id: t.id, title: t.title, board: boardName(s, t.boardId), type: t.type || 'task',
@@ -225,10 +239,10 @@ export async function think(env, data, { text, parts = [], label = '' }) {
 async function chat(env, data, history, prompt, parts, log, out) {
   const url = aiUrl(env);
   const model = env.AI_MODEL || 'z-ai/glm-5.3-flash';
-  const list = tools(data.s, env, log, out);
+  const list = [...tools(data.s, env, log, out), ...(devEnabled(env) ? devTools(env, data) : [])];
   const defs = list.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
   const user = parts.length ? [...parts, { type: 'text', text: prompt }] : prompt;
-  const messages = [{ role: 'system', content: SYSTEM }, ...history, { role: 'user', content: user }];
+  const messages = [{ role: 'system', content: SYSTEM + (devEnabled(env) ? DEV : '') }, ...history, { role: 'user', content: user }];
   // Full strength: a large answer budget and deep thinking. Anything the service refuses is dropped.
   const extras = { max_tokens: +env.AI_MAX_TOKENS || 32000, ...(env.AI_REASONING !== '' && { reasoning_effort: env.AI_REASONING || 'high' }) };
   const refused = data.bot.refused ||= {}; // settings this service said no to (remembered per model)
@@ -270,6 +284,8 @@ async function chat(env, data, history, prompt, parts, log, out) {
       } catch (e) {
         result = `Error: ${e.message}. Check the inputs and try again.`;
         data.bot.lastError = `${c.function?.name}: ${e.message} — input: ${String(c.function?.arguments).slice(0, 300)}`;
+        (data.bot.errors ||= []).push({ at: Date.now(), where: 'tool ' + c.function?.name, message: e.message });
+        data.bot.errors = data.bot.errors.slice(-15);
       }
       console.log('tool', c.function?.name, String(c.function?.arguments).slice(0, 500), '→', String(result).slice(0, 300));
       messages.push({ role: 'tool', tool_call_id: c.id, content: String(result) });
