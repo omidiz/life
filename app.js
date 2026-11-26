@@ -1091,6 +1091,20 @@
   setInterval(() => { if (document.visibilityState === 'visible') runSync(); }, 60000);
   setInterval(() => softRender(), 60000); // keep "time left" fresh
 
+  /* ---------- live Tehran clock in the top bar (always visible) ---------- */
+  const TZ = 'Asia/Tehran';
+  const fmt = (loc, o) => { try { return new Intl.DateTimeFormat(loc, { timeZone: TZ, ...o }); } catch { return null; } };
+  const fTime = fmt('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  const fDate = fmt('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  const fFa = fmt('fa-IR-u-ca-persian', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const tick = () => {
+    const d = new Date();
+    if (fTime) $('#clockTime').textContent = fTime.format(d);
+    if (fDate) $('#clockDate').textContent = fDate.format(d);
+    if (fFa) $('#clockFa').textContent = fFa.format(d);
+  };
+  tick(); setInterval(tick, 1000);
+
   applyTheme(); render();
   if (sync) runSync();
 

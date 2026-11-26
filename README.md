@@ -10,7 +10,7 @@ It's an installable web app (PWA) that works offline.
   tasks you can tick (`[] `), quotes (`> `), **bold** / *italic* / underline (Ctrl/⌘ B, I, U) and drawings (✎ Draw: pen, colours,
   sizes, eraser, undo, clear: you draw right on the page). It saves as you type, shows a word count, and syncs.
 - **English and Farsi**: every line picks its own direction, so Farsi runs right-to-left and English left-to-right, with
-  checkboxes and bullets on the right side. ⇆ in the notepad toolbar forces a line to RTL or LTR. The header also shows the Persian date.
+  checkboxes and bullets on the right side. ⇆ in the notepad toolbar forces a line to RTL or LTR. The top bar always shows the date, the Persian date and a live Tehran clock.
 - **Whiteboard**: boards are cards on a dotted canvas. Drag a card by its title bar or empty space to put it anywhere,
   resize it from the bottom-right corner, and double-click empty canvas (or press `+ New board`) to make a new card.
   Positions and sizes sync. On a phone the cards stack in one column.
