@@ -214,7 +214,7 @@ ${notepads.length ? `Notepad pages: ${notepads.join(', ')}\n` : ''}Open tasks: $
 </context>`;
 }
 
-export async function think(env, data, { text, parts = [], label = '' }) {
+export async function think(env, data, { text, parts = [], label = '' }, onText = () => {}) {
   const log = [], out = { images: [] };
   // The conversation so far (last 50 messages within a week; /new clears it).
   const fresh = data.bot.chat.filter(m => Date.now() - m.at < 7 * 864e5).slice(-50);
@@ -222,7 +222,7 @@ export async function think(env, data, { text, parts = [], label = '' }) {
   while (history.length && history[0].role !== 'user') history.shift();
   const prompt = `${context(data.s, env)}\n\n${text || '(see the attachment)'}`;
 
-  const reply = (await chat(env, data, history, prompt, parts, log, out))
+  const reply = (await chat(env, data, history, prompt, parts, log, out, onText))
     .replace(/<think>[\s\S]*?<\/think>/g, '').trim() || (out.images.length ? '' : '✓');
 
   const short = x => (x.length > 20000 ? x.slice(0, 20000) + ' …' : x);
@@ -236,23 +236,26 @@ export async function think(env, data, { text, parts = [], label = '' }) {
 // Works with any OpenAI-compatible chat API that supports tool calling:
 // NVIDIA (default), OpenRouter, Groq, Google Gemini, OpenAI, DeepSeek, Mistral…
 // Set AI_URL, AI_MODEL and AI_API_KEY in the Cloudflare dashboard to switch.
-async function chat(env, data, history, prompt, parts, log, out) {
+async function chat(env, data, history, prompt, parts, log, out, onText) {
   const url = aiUrl(env);
   const model = env.AI_MODEL || 'z-ai/glm-5.3-flash';
   const list = [...tools(data.s, env, log, out), ...(devEnabled(env) ? devTools(env, data) : [])];
   const defs = list.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
   const user = parts.length ? [...parts, { type: 'text', text: prompt }] : prompt;
   const messages = [{ role: 'system', content: SYSTEM + (devEnabled(env) ? DEV : '') }, ...history, { role: 'user', content: user }];
-  // Full strength: a large answer budget and deep thinking. Anything the service refuses is dropped.
-  const extras = { max_tokens: +env.AI_MAX_TOKENS || 32000, ...(env.AI_REASONING !== '' && { reasoning_effort: env.AI_REASONING || 'high' }) };
-  const refused = data.bot.refused ||= {}; // settings this service said no to (remembered per model)
+  // Full strength: a large answer budget and deep thinking, streamed word by word.
+  // Anything the service refuses is dropped (and remembered for this model).
+  const extras = { stream: true, max_tokens: +env.AI_MAX_TOKENS || 32000, ...(env.AI_REASONING !== '' && { reasoning_effort: env.AI_REASONING || 'high' }) };
+  const refused = data.bot.refused ||= {};
   for (const k of refused[model] || []) delete extras[k];
   const deadline = Date.now() + 12 * 60000; // a message may take up to 12 minutes
+  let shown = ''; // everything the user has seen so far, across tool rounds
 
   for (let round = 0; round < 25; round++) {
-    const r = await post(env, url, { model, messages, tools: defs, tool_choice: 'auto', stream: false, ...extras }, deadline - Date.now());
-    if (r.status === 400 && Object.keys(extras).length) { // drop optional settings one by one, deep thinking first
-      const k = Object.keys(extras).includes('reasoning_effort') ? 'reasoning_effort' : Object.keys(extras)[0];
+    const r = await post(env, url, { model, messages, tools: defs, tool_choice: 'auto', ...extras, stream: !!extras.stream }, deadline - Date.now());
+    if (r.status === 400 && Object.keys(extras).length) {
+      const body = await r.text(), keys = Object.keys(extras);
+      const k = keys.find(k => body.toLowerCase().includes(k)) || (keys.includes('reasoning_effort') ? 'reasoning_effort' : keys.find(k => k !== 'stream') || keys[0]);
       delete extras[k];
       refused[model] = [...new Set([...(refused[model] || []), k])];
       round--; continue;
@@ -262,8 +265,8 @@ async function chat(env, data, history, prompt, parts, log, out) {
     if (r.status === 404) throw new Error(`The AI service doesn't know this address or model (AI_URL / AI_MODEL: ${model}).`);
     if (r.status === 429) throw new Error('The AI service is busy (rate limit). Try again in a minute.');
     if (!r.ok) throw new Error(`AI service error ${r.status}: ${(await r.text()).slice(0, 200)}`);
-    const msg = (await r.json()).choices?.[0]?.message;
-    if (!msg) throw new Error('The AI service sent an empty answer.');
+    const before = shown ? shown + '\n\n' : '';
+    const msg = await readReply(r, text => onText(before + text));
     // Models that draw pictures themselves send them back with the answer.
     for (const im of [...(msg.images || []), ...(Array.isArray(msg.content) ? msg.content.filter(c => c.type === 'image_url') : [])]) {
       const u = im.image_url?.url || im.url;
@@ -272,8 +275,10 @@ async function chat(env, data, history, prompt, parts, log, out) {
       else if (u) out.images.push({ url: u });
     }
     const content = Array.isArray(msg.content) ? msg.content.filter(c => c.type === 'text').map(c => c.text).join('\n') : msg.content || '';
+    const visible = content.replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trim();
+    if (visible) shown = before + visible;
     const calls = msg.tool_calls || [];
-    if (!calls.length) return content;
+    if (!calls.length) return shown;
     messages.push({ role: 'assistant', content, tool_calls: calls });
     for (const c of calls) {
       const t = list.find(t => t.name === c.function?.name);
@@ -292,6 +297,46 @@ async function chat(env, data, history, prompt, parts, log, out) {
     }
   }
   return 'Sorry, that took too many steps. Please try again in simpler words.';
+}
+
+// Read the answer: streamed (server-sent events, shown as it arrives) or all at once.
+async function readReply(r, onText) {
+  if (!(r.headers.get('content-type') || '').includes('event-stream')) {
+    const msg = (await r.json()).choices?.[0]?.message;
+    if (!msg) throw new Error('The AI service sent an empty answer.');
+    return msg;
+  }
+  const reader = r.body.getReader(), dec = new TextDecoder();
+  const msg = { content: '', tool_calls: [], images: [] };
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split('\n'); buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (!data || data === '[DONE]') continue;
+      let ev; try { ev = JSON.parse(data); } catch { continue; }
+      if (ev.error) throw new Error(`AI service error: ${ev.error.message || JSON.stringify(ev.error).slice(0, 200)}`);
+      const d = ev.choices?.[0]?.delta || ev.choices?.[0]?.message || {};
+      if (typeof d.content === 'string' && d.content) {
+        msg.content += d.content;
+        onText(msg.content.replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trim());
+      }
+      for (const im of d.images || []) msg.images.push(im);
+      for (const tc of d.tool_calls || []) {
+        const i = tc.index ?? msg.tool_calls.length;
+        const cur = msg.tool_calls[i] ||= { id: '', type: 'function', function: { name: '', arguments: '' } };
+        if (tc.id) cur.id = tc.id;
+        if (tc.function?.name) cur.function.name += tc.function.name;
+        if (tc.function?.arguments) cur.function.arguments += typeof tc.function.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function.arguments);
+      }
+    }
+  }
+  msg.tool_calls = msg.tool_calls.filter(Boolean).map((c, i) => ({ ...c, id: c.id || `call_${i}` }));
+  return msg;
 }
 
 async function post(env, url, body, ms) {

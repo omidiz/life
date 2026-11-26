@@ -199,10 +199,40 @@ async function sendPhoto(env, img, caption) {
   }
 }
 
-// An AI answer: Markdown → Telegram messages (split if long), then any pictures.
-async function sendAnswer(env, { text, images }) {
-  for (const img of images) await sendPhoto(env, img);
-  for (const part of splitMd(text || '')) await send(env, mdToHtml(part));
+// An answer that appears as it is written: one Telegram message that grows (edited about once a second),
+// continued in a new message when it gets longer than Telegram allows.
+class LiveAnswer {
+  constructor(env) { this.env = env; this.ids = []; this.shown = []; this.text = ''; this.last = 0; this.timer = null; this.chain = Promise.resolve(); }
+  update(text) {
+    this.text = text;
+    if (this.timer) return;
+    const wait = Math.max(0, 900 - (Date.now() - this.last));
+    this.timer = setTimeout(() => { this.timer = null; this.chain = this.chain.then(() => this.flush(false)); }, wait);
+  }
+  async flush(final) {
+    this.last = Date.now();
+    const chunks = splitMd(this.text);
+    for (let i = 0; i < chunks.length; i++) {
+      const lastChunk = i === chunks.length - 1;
+      const html = mdToHtml(chunks[i]) + (!final && lastChunk ? ' ▍' : '');
+      if (this.shown[i] === html || !html.trim()) continue;
+      const plain = chunks[i] + (!final && lastChunk ? ' ▍' : '');
+      if (this.ids[i]) {
+        const r = await tg(this.env, 'editMessageText', { chat_id: this.env.CHAT_ID, message_id: this.ids[i], text: html, parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+        if (!r.ok && !/not modified/.test(r.description || '')) await tg(this.env, 'editMessageText', { chat_id: this.env.CHAT_ID, message_id: this.ids[i], text: plain.slice(0, 4096) });
+      } else {
+        const r = await send(this.env, html);
+        this.ids[i] = r?.result?.message_id;
+      }
+      this.shown[i] = html;
+    }
+  }
+  async finish(text) {
+    clearTimeout(this.timer); this.timer = null;
+    await this.chain;
+    if (text !== undefined) this.text = text;
+    if (this.text.trim()) await this.flush(true);
+  }
 }
 
 // Keep "typing…" (or "sending photo…") showing while the AI works.
@@ -215,6 +245,7 @@ function busy(env, action = 'typing') {
 
 async function onMessage(env, m) {
   const w = L(env);
+  if (env.AI_API_KEY && !(m.text || '').startsWith('/')) tg(env, 'sendChatAction', { chat_id: env.CHAT_ID, action: 'typing' }).catch(() => {}); // right away
   let text = (m.text || m.caption || '').trim();
   const cmd = text.startsWith('/') ? text.slice(1).split(/[\s@]/)[0].toLowerCase() : null;
   const arg = cmd ? text.replace(/^\/\S+\s*/, '') : '';
@@ -265,11 +296,14 @@ async function onMessage(env, m) {
     if (!text && !att.parts.length) return;
 
     const quoted = m.reply_to_message?.text || m.reply_to_message?.caption;
-    const answer = await think(env, data, { text: [quoted && `(replying to: "${quoted}")`, text].filter(Boolean).join('\n'), parts: att.parts, label: att.label });
+    const live = new LiveAnswer(env);
+    const answer = await think(env, data, { text: [quoted && `(replying to: "${quoted}")`, text].filter(Boolean).join('\n'), parts: att.parts, label: att.label }, t => live.update(t));
+    // Answer first, save afterwards: the user doesn't wait for GitHub.
+    await live.finish(answer.text);
+    for (const img of answer.images) await sendPhoto(env, img);
     const showProposal = data.bot.showProposal; delete data.bot.showProposal;
-    await data.save();
-    await sendAnswer(env, answer);
     if (showProposal && data.bot.proposal) { const v = proposalView(data.bot.proposal); await send(env, v.text, { reply_markup: v.reply_markup }); }
+    await data.save();
   } finally { stop(); }
 }
 
