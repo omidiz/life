@@ -24,3 +24,7 @@ new_sqlite_classes = ["ChatRoom"]
 # Every 5 minutes: reminders, morning brief, evening review, build notices.
 [triggers]
 crons = ["*/5 * * * *"]
+
+# Keep the bot's logs in Cloudflare (life-bot → Observability), to see what went wrong when something does.
+[observability]
+enabled = true
