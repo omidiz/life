@@ -1,20 +1,18 @@
+# Life bot — Cloudflare settings. Secrets and the AI service are set in the Cloudflare dashboard
+# (life-bot → Settings → Variables and Secrets); see README.md.
 name = "life-bot"
-main = "worker.js"
+main = "src/worker.js"
 compatibility_date = "2026-11-01"
-# Keep variables you add in the Cloudflare dashboard when the bot is rebuilt.
-keep_vars = true
-
-# The AI service is set in the Cloudflare dashboard (Settings → Variables and Secrets):
-#   AI_URL, AI_MODEL and AI_API_KEY. Without AI_URL / AI_MODEL, NVIDIA and z-ai/glm-5.3-flash are used.
+keep_vars = true # keep the variables you add in the Cloudflare dashboard when the bot is rebuilt
 
 [vars]
-TZ = "Asia/Tehran"     # your time zone
-LANG = "fa"            # "fa" or "en": the language of briefs, reminders and buttons (chat follows your language)
-MORNING = "08:00"      # morning brief time; "" to turn it off
-EVENING = "21:00"      # evening review time; "" to turn it off
-GITHUB_REPO = "omidiz/life"  # the repository the bot may edit (with the GITHUB_REPO_TOKEN secret)
+TZ = "Asia/Tehran"           # your time zone
+LANG = "fa"                  # "fa" or "en": the bot's own texts (in chat it answers in your language)
+MORNING = "08:00"            # morning brief; "" turns it off
+EVENING = "21:00"            # evening review; "" turns it off
+GITHUB_REPO = "omidiz/life"  # the repository the bot may edit (needs the GITHUB_REPO_TOKEN secret)
 
-# The bot's "room", where messages are answered in the background (free plan included).
+# The bot's "room": receives messages, answers them one by one, and keeps the bot's memory.
 [[durable_objects.bindings]]
 name = "ROOM"
 class_name = "ChatRoom"
@@ -23,6 +21,6 @@ class_name = "ChatRoom"
 tag = "v1"
 new_sqlite_classes = ["ChatRoom"]
 
-# Checks for reminders and brief times every 5 minutes.
+# Every 5 minutes: reminders, morning brief, evening review, build notices.
 [triggers]
 crons = ["*/5 * * * *"]

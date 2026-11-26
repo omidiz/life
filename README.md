@@ -47,8 +47,9 @@ Without sync, data stays on the device. ⋯ → Export / Import works as a manua
 
 ## Telegram bot
 
-A private AI chatbot in Telegram (Farsi or English; NVIDIA or any OpenAI-compatible API): chat about anything, make pictures, read photos and files, and manage tasks in plain words:
-reads photos of lists, answers questions about your boards and notes, reminds you on time, and sends a morning brief and evening review.
-It uses the same sync gist. Step-by-step setup (in Farsi) is in [bot/README.md](bot/README.md).
+A private AI assistant in Telegram, like ChatGPT or Gemini but personal: it chats about anything with live answers,
+remembers you, reads photos, voice, PDFs, files and links, makes pictures, manages this dashboard (tasks, reminders,
+morning brief) and can even propose changes to its own code. Works with any OpenAI-compatible AI service.
+Set-up and details (in Farsi): [bot/README.md](bot/README.md).
 
 Run locally: `python3 -m http.server` and open http://localhost:8000
