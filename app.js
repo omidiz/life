@@ -128,6 +128,9 @@
   /* ---------- bold text ----------
      A line is stored as plain text (title) plus, when it has bold parts, a tiny
      safe HTML string (rich) that only ever contains escaped text, <b> and <br>. */
+  // Right-to-left if the first letter is Persian/Arabic/Hebrew, so a Farsi line's checkbox sits on the right.
+  const RTL_FIRST = /^[^A-Za-z\u00C0-\u024F\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]*[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
+  const dirOf = text => (RTL_FIRST.test(text || '') ? 'rtl' : 'ltr');
   const isBold = n => n.nodeName === 'B' || n.nodeName === 'STRONG' || /^(bold|bolder|[6-9]00)$/.test(n.style?.fontWeight || '');
   const toRich = (node, inBold = false) => {
     let out = '';
@@ -153,55 +156,247 @@
   };
 
   /* ---------- notepad pages ----------
-     A notepad page keeps one piece of writing. Like lines on boards, it's stored as tiny
-     safe HTML that can only contain escaped text, <b>, <i>, <u> and <br>. */
+     A notepad page is a list of blocks: paragraph, two heading sizes, bullet and numbered
+     lists, tasks, quotes and drawings. It's stored as tiny HTML that is always rebuilt by
+     readBlocks(), so it can only ever contain escaped text, <b> <i> <u> <br>, our block <div>s
+     and drawings whose image is a checked data:image URL. Every block picks its own
+     direction (dir="auto"), so Farsi lines run right-to-left and English left-to-right. */
+  const BLOCKS = ['p', 'h1', 'h2', 'ul', 'ol', 'todo', 'quote'];
   const MARK = { B: 'b', STRONG: 'b', I: 'i', EM: 'i', U: 'u' };
   const markOf = n => MARK[n.nodeName] || (isBold(n) ? 'b' : /italic/.test(n.style?.fontStyle || '') ? 'i'
     : /underline/.test(n.style?.textDecorationLine || n.style?.textDecoration || '') ? 'u' : null);
-  const toDoc = node => {
-    let out = '';
-    node.childNodes.forEach(n => {
-      if (n.nodeType === 3) { out += esc(n.nodeValue); return; }
-      if (n.nodeType !== 1) return;
-      if (n.nodeName === 'BR') { out += '<br>'; return; }
-      if (/^(DIV|P|H[1-6]|LI|BLOCKQUOTE)$/.test(n.nodeName) && out && !out.endsWith('<br>')) out += '<br>';
-      const tag = markOf(n), inner = toDoc(n);
-      out += tag && inner ? `<${tag}>${inner}</${tag}>` : inner;
+  const SRC_OK = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+  const BLOCK_TAG = /^(DIV|P|H[1-6]|LI|BLOCKQUOTE|UL|OL|SECTION|ARTICLE|FIGURE|PRE)$/;
+  const isBlockEl = n => n.nodeType === 1 && BLOCK_TAG.test(n.nodeName);
+  const inlineOf = n => {
+    if (n.nodeType === 3) return esc(n.nodeValue);
+    if (n.nodeType !== 1 || /^(FIGURE|BUTTON|IMG|STYLE|SCRIPT)$/.test(n.nodeName)) return '';
+    if (n.nodeName === 'BR') return '<br>';
+    const inner = [...n.childNodes].map(inlineOf).join('');
+    const tag = markOf(n);
+    return (isBlockEl(n) ? '<br>' : '') + (tag && inner ? `<${tag}>${inner}</${tag}>` : inner);
+  };
+  const trimBr = h => h.replace(/^(<br>)+|(<br>)+$/g, '');
+  // Read the editor (or stored HTML) into a clean list of blocks.
+  const readBlocks = root => {
+    const out = []; let run = null;
+    const flush = () => { if (run !== null) { out.push({ t: 'p', html: trimBr(run) }); run = null; } };
+    const walk = parent => parent.childNodes.forEach(n => {
+      if (n.nodeType === 1 && n.nodeName === 'FIGURE') {
+        flush(); const src = n.querySelector('img')?.getAttribute('src') || '';
+        if (SRC_OK.test(src)) out.push({ t: 'sketch', src }); return;
+      }
+      if (isBlockEl(n)) {
+        flush();
+        if ([...n.childNodes].some(isBlockEl)) return walk(n); // a wrapper: read what's inside
+        const pt = n.parentNode?.nodeName;
+        const t = BLOCKS.includes(n.dataset?.t) ? n.dataset.t
+          : n.nodeName === 'H1' ? 'h1' : /^H[2-6]$/.test(n.nodeName) ? 'h2' : n.nodeName === 'BLOCKQUOTE' ? 'quote'
+          : n.nodeName === 'LI' ? (pt === 'OL' ? 'ol' : 'ul') : 'p';
+        const dir = n.getAttribute?.('dir');
+        out.push({ t, c: t === 'todo' && n.dataset?.c === '1', dir: dir === 'rtl' || dir === 'ltr' ? dir : '', html: trimBr([...n.childNodes].map(inlineOf).join('')) });
+        return;
+      }
+      if (n.nodeType === 1 && n.nodeName === 'BR') { if (run === null) out.push({ t: 'p', html: '' }); else flush(); return; }
+      const h = inlineOf(n); if (h) run = (run || '') + h;
     });
+    walk(root); flush();
     return out;
   };
-  const showDoc = html => { const tpl = document.createElement('template'); tpl.innerHTML = html || ''; return toDoc(tpl.content); };
+  const blockHTML = b => b.t === 'sketch'
+    ? `<figure class="sketch" contenteditable="false"><img src="${b.src}" alt="Drawing" draggable="false"><span class="sketch-tools"><button type="button" data-sk="edit">Edit</button><button type="button" data-sk="del" aria-label="Delete drawing">×</button></span></figure>`
+    : `<div data-t="${b.t}"${b.c ? ' data-c="1"' : ''} dir="${b.dir || 'auto'}">${b.html || '<br>'}</div>`;
+  const parseDoc = html => { const tpl = document.createElement('template'); tpl.innerHTML = html || ''; return readBlocks(tpl.content); };
+  const docHTML = blocks => (blocks.length ? blocks : [{ t: 'p' }]).map(blockHTML).join('');
   const docPage = () => S.pages.find(p => p.id === currentPage());
-  const wordCount = () => {
-    const text = $('#docBody').innerText.trim(), n = text ? text.split(/\s+/).length : 0;
-    return `${n} word${n === 1 ? '' : 's'}`;
-  };
+  const body = () => $('#docBody');
+  const blockText = () => [...body().querySelectorAll('[data-t]')].map(b => b.innerText).join('\n').trim();
+  const wordCount = () => { const t = blockText(), n = t ? t.split(/\s+/).length : 0; return `${n} word${n === 1 ? '' : 's'}`; };
+  const isEmptyDoc = () => !blockText() && !body().querySelector('figure');
+  const refreshDocUI = () => { body().classList.toggle('empty-doc', isEmptyDoc()); $('#summary').textContent = wordCount(); };
   const renderDoc = () => {
-    const body = $('#docBody'), html = showDoc(docPage().doc);
-    if (document.activeElement !== body && body.innerHTML !== html) body.innerHTML = html;
-    body.classList.toggle('empty-doc', !body.innerText.trim());
-    $('#summary').textContent = wordCount();
+    const html = docHTML(parseDoc(docPage().doc));
+    if (document.activeElement !== body() && body().innerHTML !== html) body().innerHTML = html;
+    refreshDocUI();
   };
   let docTimer;
-  $('#docBody').addEventListener('input', () => {
-    const body = $('#docBody');
-    body.classList.toggle('empty-doc', !body.innerText.trim());
-    $('#summary').textContent = wordCount();
+  const saveDoc = (now_ = false) => {
     clearTimeout(docTimer);
-    docTimer = setTimeout(() => { const p = docPage(); p.doc = toDoc(body).replace(/(<br>)+$/, ''); p.updated = now(); save(); }, 400);
-  });
-  $('#docBody').addEventListener('focusout', () => {
-    clearTimeout(docTimer); const p = docPage(), html = toDoc($('#docBody')).replace(/(<br>)+$/, '');
-    if (p && p.doc !== html) { p.doc = html; p.updated = now(); save(); }
-    if (renderPending) setTimeout(() => { if (!editing()) render(); }, 0);
-  });
-  $('#docBody').addEventListener('paste', e => { // plain text only
-    e.preventDefault(); document.execCommand('insertText', false, e.clipboardData?.getData('text/plain') || '');
+    const run = () => { const p = docPage(); if (!p || p.kind !== 'doc') return; const html = readBlocks(body()).map(blockHTML).join('');
+      if (p.doc !== html) { p.doc = html; p.updated = now(); save(); } };
+    now_ ? run() : (docTimer = setTimeout(run, 400));
+  };
+  // The block (direct child of the editor) that holds the cursor.
+  const blockOf = n => { while (n && n.parentNode !== body()) n = n.parentNode; return n && n.nodeType === 1 ? n : null; };
+  const curBlock = () => blockOf(getSelection().anchorNode);
+  const selectedBlocks = () => {
+    const sel = getSelection(); if (!sel.rangeCount) return [];
+    const a = blockOf(sel.getRangeAt(0).startContainer), z = blockOf(sel.getRangeAt(0).endContainer);
+    if (!a) return [];
+    const list = []; for (let n = a; n; n = n.nextElementSibling) { if (n.dataset.t) list.push(n); if (n === z) break; }
+    return list;
+  };
+  const caretAt = (node, offset) => { const r = document.createRange(); r.setStart(node, offset); r.collapse(true); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+  // Keep the editor made of block <div>s (typing into an emptied editor makes bare text).
+  const normalize = () => {
+    const b = body(), sel = getSelection(), an = sel.anchorNode, ao = sel.anchorOffset;
+    let wrap = null;
+    [...b.childNodes].forEach(n => {
+      if (n.nodeType === 1 && (n.dataset?.t || n.nodeName === 'FIGURE')) { wrap = null; return; }
+      if (n.nodeType === 1 && isBlockEl(n)) { n.dataset.t = 'p'; n.setAttribute('dir', 'auto'); wrap = null; return; }
+      if (!wrap) { wrap = document.createElement('div'); wrap.dataset.t = 'p'; wrap.dir = 'auto'; b.insertBefore(wrap, n); }
+      wrap.appendChild(n);
+    });
+    if (!b.firstChild) b.innerHTML = blockHTML({ t: 'p' });
+    if (an && b.contains(an)) try { caretAt(an, ao); } catch {}
+  };
+  const setBlockType = (blocks, t) => {
+    const all = blocks.every(b => b.dataset.t === t);
+    blocks.forEach(b => { b.dataset.t = all && t !== 'p' ? 'p' : t; if (b.dataset.t !== 'todo') delete b.dataset.c; });
+    saveDoc(); refreshDocUI();
+  };
+  // Markdown-style shortcuts at the start of a line.
+  const DOC_SHORTCUTS = [[/^##\s/, 'h2'], [/^#\s/, 'h1'], [/^[-*•]\s/, 'ul'], [/^1[.)]\s/, 'ol'], [/^\[\s?\]\s/, 'todo'], [/^>\s/, 'quote']];
+  const deleteFirstChars = (block, k) => {
+    const tw = document.createTreeWalker(block, NodeFilter.SHOW_TEXT); let n, left = k;
+    const r = document.createRange(); r.setStart(block, 0);
+    while ((n = tw.nextNode())) { if (n.nodeValue.length >= left) { r.setEnd(n, left); break; } left -= n.nodeValue.length; }
+    r.deleteContents();
+  };
+
+  $('#docBody').addEventListener('focus', () => document.execCommand('defaultParagraphSeparator', false, 'div'));
+  $('#docBody').addEventListener('input', e => {
+    normalize();
+    const blk = curBlock();
+    if (blk && e.inputType === 'insertParagraph') {
+      // a new line after a heading is plain text; a new task starts unticked
+      if (blk.dataset.t === 'h1' || blk.dataset.t === 'h2') blk.dataset.t = 'p';
+      delete blk.dataset.c;
+    }
+    if (blk && blk.dataset.t && e.inputType === 'insertText') {
+      const text = blk.textContent, hit = DOC_SHORTCUTS.find(([re]) => re.test(text));
+      if (hit && (blk.dataset.t === 'p' || blk.dataset.t !== hit[1])) { deleteFirstChars(blk, text.match(hit[0])[0].length); blk.dataset.t = hit[1]; if (!blk.firstChild) blk.innerHTML = '<br>'; caretAt(blk, 0); }
+    }
+    refreshDocUI(); saveDoc();
   });
   $('#docBody').addEventListener('keydown', e => {
+    const blk = curBlock(); if (!blk) return;
+    const t = blk.dataset.t, empty = !blk.textContent;
+    if (e.key === 'Enter' && !e.shiftKey && empty && ['ul', 'ol', 'todo', 'quote'].includes(t)) { e.preventDefault(); setBlockType([blk], 'p'); return; }
+    if (e.key === 'Backspace' && t && t !== 'p') {
+      const sel = getSelection(), r = sel.rangeCount && sel.getRangeAt(0);
+      if (r && r.collapsed) { const pre = document.createRange(); pre.setStart(blk, 0); pre.setEnd(r.startContainer, r.startOffset);
+        if (!pre.toString()) { e.preventDefault(); setBlockType([blk], 'p'); return; } } // Backspace at the start undoes the list/heading
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && ['b', 'i', 'u'].includes(e.key.toLowerCase())) {
+      e.preventDefault(); document.execCommand({ b: 'bold', i: 'italic', u: 'underline' }[e.key.toLowerCase()]); saveDoc();
+    }
     if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
   });
-  $('#doc').addEventListener('click', e => { if (e.target.id === 'doc' || e.target.classList.contains('doc-paper')) $('#docBody').focus(); });
+  $('#docBody').addEventListener('focusout', () => { saveDoc(true); if (renderPending) setTimeout(() => { if (!editing()) render(); }, 0); });
+  $('#docBody').addEventListener('paste', e => { e.preventDefault(); document.execCommand('insertText', false, e.clipboardData?.getData('text/plain') || ''); });
+  // Tick tasks; edit or delete drawings.
+  $('#docBody').addEventListener('click', e => {
+    const sk = e.target.closest('[data-sk]');
+    if (sk) {
+      const fig = sk.closest('figure');
+      if (sk.dataset.sk === 'del') { if (confirm('Delete this drawing?')) { fig.remove(); normalize(); saveDoc(true); refreshDocUI(); } }
+      else openSketch(fig);
+      return;
+    }
+    const blk = e.target.closest('[data-t=todo]'); if (!blk || blk.parentNode !== body()) return;
+    const r = blk.getBoundingClientRect(), rtl = getComputedStyle(blk).direction === 'rtl';
+    if (rtl ? e.clientX > r.right - 30 : e.clientX < r.left + 30) {
+      if (blk.dataset.c) delete blk.dataset.c; else blk.dataset.c = '1';
+      saveDoc(true);
+    }
+  });
+  $('#doc').addEventListener('click', e => {
+    if (e.target.id !== 'doc' && !e.target.classList.contains('doc-paper')) return;
+    const last = body().lastElementChild; body().focus();
+    if (last) { const r = document.createRange(); r.selectNodeContents(last); r.collapse(false); getSelection().removeAllRanges(); getSelection().addRange(r); }
+  });
+  // Toolbar: keep the text selection while clicking it.
+  $('#docTools').addEventListener('pointerdown', e => { if (e.target.closest('button')) e.preventDefault(); });
+  $('#docTools').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-cmd]'); if (!btn) return;
+    const cmd = btn.dataset.cmd;
+    if (document.activeElement !== body()) { body().focus(); }
+    let blocks = selectedBlocks(); if (!blocks.length) { normalize(); blocks = [body().lastElementChild].filter(b => b?.dataset.t); }
+    if (BLOCKS.includes(cmd)) return setBlockType(blocks, cmd);
+    if (cmd === 'bold' || cmd === 'italic' || cmd === 'underline') { document.execCommand(cmd); return saveDoc(); }
+    if (cmd === 'dir') { // auto → right-to-left → left-to-right → auto
+      const next = { auto: 'rtl', rtl: 'ltr', ltr: 'auto' }[blocks[0]?.getAttribute('dir') || 'auto'];
+      blocks.forEach(b => b.setAttribute('dir', next)); return saveDoc(true);
+    }
+    if (cmd === 'draw') return openSketch(null, blocks.at(-1));
+  });
+
+  /* ---------- drawing pad ---------- */
+  const sk = { cv: $('#sketchCanvas'), color: '#1f2328', size: 4, erase: false, strokes: [], base: null, fig: null, after: null, cur: null };
+  const skCtx = sk.cv.getContext('2d');
+  const skRedraw = () => {
+    const { width, height } = sk.cv; skCtx.clearRect(0, 0, width, height);
+    skCtx.globalCompositeOperation = 'source-over';
+    if (sk.base) skCtx.drawImage(sk.base, 0, 0, width, height);
+    sk.strokes.forEach(drawStroke);
+  };
+  const drawStroke = s => {
+    const dpr = sk.cv.width / sk.cv.clientWidth;
+    skCtx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over';
+    skCtx.strokeStyle = s.color; skCtx.lineWidth = s.size * dpr; skCtx.lineCap = skCtx.lineJoin = 'round';
+    skCtx.beginPath();
+    s.pts.forEach(([x, y], i) => { x *= dpr; y *= dpr; if (!i) skCtx.moveTo(x, y); else skCtx.lineTo(x, y); });
+    if (s.pts.length === 1) { const [x, y] = s.pts[0]; skCtx.lineTo(x * dpr + .1, y * dpr); }
+    skCtx.stroke();
+  };
+  const openSketch = (fig, after) => {
+    sk.fig = fig; sk.after = after || curBlock(); sk.strokes = []; sk.base = null;
+    const dlg = $('#sketchDlg'); dlg.showModal();
+    const w = sk.cv.clientWidth, h = sk.cv.clientHeight, dpr = Math.min(2, devicePixelRatio || 1);
+    sk.cv.width = Math.round(w * dpr); sk.cv.height = Math.round(h * dpr);
+    const src = fig?.querySelector('img')?.src;
+    if (src) { const img = new Image(); img.onload = () => { sk.base = img; skRedraw(); }; img.src = src; } else skRedraw();
+  };
+  sk.cv.addEventListener('pointerdown', e => {
+    sk.cv.setPointerCapture(e.pointerId);
+    const r = sk.cv.getBoundingClientRect();
+    sk.cur = { color: sk.color, size: sk.erase ? sk.size * 4 : sk.size, erase: sk.erase, pts: [[e.clientX - r.left, e.clientY - r.top]] };
+    sk.strokes.push(sk.cur); drawStroke(sk.cur);
+  });
+  sk.cv.addEventListener('pointermove', e => {
+    if (!sk.cur) return;
+    const r = sk.cv.getBoundingClientRect(); sk.cur.pts.push([e.clientX - r.left, e.clientY - r.top]);
+    skRedraw();
+  });
+  const endStroke = () => { sk.cur = null; };
+  sk.cv.addEventListener('pointerup', endStroke); sk.cv.addEventListener('pointercancel', endStroke);
+  $('#sketchTools').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.color) { sk.color = b.dataset.color; sk.erase = false; }
+    if (b.dataset.size) sk.size = +b.dataset.size;
+    if (b.dataset.tool === 'erase') sk.erase = !sk.erase;
+    if (b.dataset.tool === 'undo') { sk.strokes.pop(); skRedraw(); }
+    if (b.dataset.tool === 'clear' && confirm('Clear the drawing?')) { sk.strokes = []; sk.base = null; skRedraw(); }
+    $('#sketchTools').querySelectorAll('[data-color]').forEach(x => x.classList.toggle('on', !sk.erase && x.dataset.color === sk.color));
+    $('#sketchTools').querySelectorAll('[data-size]').forEach(x => x.classList.toggle('on', +x.dataset.size === sk.size));
+    $('#sketchTools').querySelector('[data-tool=erase]').classList.toggle('on', sk.erase);
+  });
+  $('#sketchCancel').onclick = () => $('#sketchDlg').close();
+  $('#sketchSave').onclick = () => {
+    const src = sk.cv.toDataURL('image/png');
+    $('#sketchDlg').close();
+    if (!sk.strokes.length && !sk.base) return;
+    if (sk.fig) sk.fig.querySelector('img').src = src;
+    else {
+      const holder = document.createElement('template'); holder.innerHTML = blockHTML({ t: 'sketch', src }) + blockHTML({ t: 'p' });
+      const ref = sk.after && sk.after.parentNode === body() ? sk.after.nextSibling : null;
+      const nextLine = holder.content.lastChild;
+      body().insertBefore(holder.content, ref);
+      body().focus(); caretAt(nextLine, 0);
+    }
+    saveDoc(true); refreshDocUI();
+  };
 
   /* ---------- item types ---------- */
   // 'note' is a plain paragraph of text (shown as "Text").
@@ -213,7 +408,7 @@
   };
   const typeOf = t => (TYPES[t.type] ? t.type : 'task');
   // Typing one of these at the start of a line turns it into that kind of item.
-  const SHORTCUTS = [[/^#{1,3}\s/, 'heading'], [/^[-*•]\s/, 'bullet'], [/^\[\s?\]\s?/, 'task']];
+  const SHORTCUTS = [[/^#{1,3}\s/, 'heading'], [/^[-*•]\s/, 'bullet'], [/^\[\s?\]\s/, 'task']];
 
   let renamingPage = null, addMenu = false;
   const renderNav = () => {
@@ -236,6 +431,7 @@
 
   const header = () => {
     $('#date').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+    try { $('#dateFa').textContent = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date()); } catch {}
     if (isDocPage()) { $('#summary').textContent = wordCount(); return; }
     const ids = new Set(boards().map(b => b.id));
     const tasks = live(S.tasks).filter(t => isTask(t) && t.title && ids.has(t.boardId));
@@ -257,13 +453,13 @@
       <button class="type size-btn bold-btn" data-act="tbold" tabindex="-1" aria-label="Bold"><b>B</b></button><button class="type size-btn" data-act="tsmaller" tabindex="-1" aria-label="Smaller text">A−</button><button class="type size-btn" data-act="tbigger" tabindex="-1" aria-label="Bigger text">A+</button></div>`;
     const del = `<button class="del" data-act="del" aria-label="Delete">×</button>`;
     if (type !== 'task') return `
-      <li class="item ${type}" data-id="${t.id}"${t.size && t.size !== 1 ? ` style="--z:${t.size}"` : ''}>
+      <li class="item ${type}" dir="${dirOf(t.title)}" data-id="${t.id}"${t.size && t.size !== 1 ? ` style="--z:${t.size}"` : ''}>
         ${handle}${type === 'bullet' ? '<span class="dot">•</span>' : ''}
         <div class="body">${text}${typebar}</div>${del}
       </li>`;
     const info = dueInfo(t);
     return `
-      <li class="item task ${t.done ? 'done' : ''}" data-id="${t.id}"${t.size && t.size !== 1 ? ` style="--z:${t.size}"` : ''}>
+      <li class="item task ${t.done ? 'done' : ''}" dir="${dirOf(t.title)}" data-id="${t.id}"${t.size && t.size !== 1 ? ` style="--z:${t.size}"` : ''}>
         ${handle}
         <button class="check" data-act="toggle" aria-label="${t.done ? 'Mark not done' : 'Mark done'}">${t.done ? '✓' : ''}</button>
         <div class="body">
@@ -598,6 +794,7 @@
     const t = taskOf(el);
     const raw = el.innerText;
     readLine(el, t); t.updated = now();
+    el.closest('.item').dir = dirOf(t.title); // flips sides as soon as you start typing Farsi
     const hit = SHORTCUTS.find(([re, type]) => re.test(raw) && type !== typeOf(t)); // works on any kind of line
     if (hit) { t.title = raw.replace(hit[0], '').trim(); t.rich = null; return setType(t, hit[1]); }
     store();

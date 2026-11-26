@@ -422,3 +422,58 @@ button { -webkit-tap-highlight-color: transparent; }
 @media (max-width: 640px) { .doc-paper { padding: 28px 22px; border-radius: 16px; min-height: 70vh; } }
 .doc-body { position: relative; }
 .boards[hidden] { display: none !important; }
+
+/* ============ notepad: blocks, toolbar, drawings, RTL ============ */
+.date-fa { font-size: 15px; color: var(--muted); margin-top: 4px; font-family: "Vazirmatn", Tahoma, var(--font, sans-serif); text-align: left; }
+.doc-paper { padding-top: 20px; }
+.doc-tools {
+  position: sticky; top: 64px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 2px;
+  margin: 0 -24px 28px; padding: 6px 18px; background: var(--panel); border-bottom: 1px solid var(--rule);
+}
+.doc-tools button { font-size: 13.5px; padding: 6px 10px; border-radius: 8px; color: var(--ink); }
+.doc-tools button:hover { background: var(--rule); color: var(--fg); }
+.doc-tools .sep, .sketch-top .sep { width: 1px; height: 18px; background: var(--rule); margin: 0 6px; }
+@media (max-width: 640px) { .doc-tools { flex-wrap: nowrap; overflow-x: auto; margin: 0 -10px 20px; padding: 6px 4px; top: 56px; scrollbar-width: none; } .doc-tools button { flex: none; } }
+
+.doc-body > [data-t] { position: relative; min-height: 1.75em; }
+.doc-body > [data-t=h1] { font-size: 1.75em; font-weight: 700; line-height: 1.3; margin: .6em 0 .25em; letter-spacing: -.015em; }
+.doc-body > [data-t=h2] { font-size: 1.3em; font-weight: 650; line-height: 1.35; margin: .5em 0 .2em; }
+.doc-body > [data-t=h1]:first-child, .doc-body > [data-t=h2]:first-child { margin-top: 0; }
+.doc-body > [data-t=ul], .doc-body > [data-t=ol], .doc-body > [data-t=todo] { padding-inline-start: 1.8em; }
+.doc-body > [data-t=ul]::before { content: '•'; position: absolute; inset-inline-start: .55em; color: var(--ink); }
+.doc-body { counter-reset: n; }
+.doc-body > :not([data-t=ol]) { counter-reset: n; }
+.doc-body > [data-t=ol] { counter-increment: n; }
+.doc-body > [data-t=ol]::before { content: counter(n) '.'; position: absolute; inset-inline-start: 0; width: 1.4em; text-align: end; color: var(--ink); font-variant-numeric: tabular-nums; }
+.doc-body > [data-t=todo]::before {
+  content: ''; position: absolute; inset-inline-start: .15em; top: .38em; width: 1em; height: 1em;
+  border: 1.5px solid var(--fg); border-radius: 5px; cursor: pointer; box-sizing: border-box;
+}
+.doc-body > [data-t=todo][data-c]::before { background: var(--fg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/80% no-repeat; }
+:root.dark .doc-body > [data-t=todo][data-c]::before { filter: invert(1); }
+.doc-body > [data-t=todo][data-c] { color: var(--muted); text-decoration: line-through; }
+.doc-body > [data-t=quote] { border-inline-start: 3px solid var(--rule); padding-inline-start: 1em; color: var(--ink); font-style: italic; }
+.doc-body > [dir=rtl] { font-family: "Vazirmatn", Tahoma, -apple-system, "Segoe UI", sans-serif; }
+.doc-body > :dir(rtl) { font-family: "Vazirmatn", Tahoma, -apple-system, "Segoe UI", sans-serif; } /* separate rule: older browsers skip only this one */
+
+.sketch { position: relative; margin: 12px 0; display: block; }
+.sketch img { display: block; max-width: 100%; background: #fff; border: 1px solid #e7e9ec; border-radius: 12px; }
+.sketch-tools { position: absolute; top: 8px; inset-inline-end: 8px; display: none; gap: 4px; }
+.sketch:hover .sketch-tools { display: flex; }
+@media (hover: none) { .sketch-tools { display: flex; } }
+.sketch-tools button { font-size: 12.5px; padding: 4px 10px; border-radius: 8px; background: rgba(17,20,22,.85); color: #fff; }
+
+.sketch-dlg { width: min(960px, 96vw); padding: 14px; }
+.sketch-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+.sketch-top button { font-size: 13px; padding: 6px 10px; border-radius: 8px; color: var(--ink); }
+.sketch-top button.on, .sketch-top button:hover { background: var(--rule); color: var(--fg); }
+.swatch-dot, .size-dot { width: 30px; height: 30px; padding: 0 !important; display: grid; place-items: center; }
+.swatch-dot::before { content: ''; width: 18px; height: 18px; border-radius: 50%; background: var(--c); }
+.swatch-dot.on { box-shadow: inset 0 0 0 2px var(--fg); background: transparent !important; border-radius: 50% !important; }
+.size-dot::before { content: ''; width: var(--d); height: var(--d); border-radius: 50%; background: var(--fg); }
+#sketchCanvas { display: block; width: 100%; height: min(60vh, 520px); background: #fff; border: 1px solid #e7e9ec; border-radius: 12px; touch-action: none; cursor: crosshair; }
+.sketch-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.sketch-foot .btn { width: auto; margin: 0; padding: 9px 20px; }
+
+/* board lines follow their own direction too */
+.handle { left: auto; inset-inline-start: -18px; }

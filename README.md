@@ -6,7 +6,11 @@ It's an installable web app (PWA) that works offline.
 - **Pages**: the bar at the top switches between pages (e.g. Home, School, Work), each with its own cards.
   `+` adds a page (Boards or Notepad), double-click a tab to rename it, × on the current tab deletes it. ⇢ on a card moves it to another page.
 - **Notepad pages**: `+` → **Notepad** gives a blank sheet to write anything, like a simple Word page.
-  Ctrl/⌘ B bold, I italic, U underline; it saves as you type, shows a word count, and syncs.
+  The toolbar (or shortcuts at the start of a line) adds headings (`# `, `## `), bullet lists (`- `), numbered lists (`1. `),
+  tasks you can tick (`[] `), quotes (`> `), **bold** / *italic* / underline (Ctrl/⌘ B, I, U) and drawings (✎ Draw: pen, colours,
+  sizes, eraser, undo). It saves as you type, shows a word count, and syncs.
+- **English and Farsi**: every line picks its own direction, so Farsi runs right-to-left and English left-to-right, with
+  checkboxes and bullets on the right side. ⇆ in the notepad toolbar forces a line to RTL or LTR. The header also shows the Persian date.
 - **Whiteboard**: boards are cards on a dotted canvas. Drag a card by its title bar or empty space to put it anywhere,
   resize it from the bottom-right corner, and double-click empty canvas (or press `+ New board`) to make a new card.
   Positions and sizes sync. On a phone the cards stack in one column.

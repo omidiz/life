@@ -27,6 +27,7 @@
   <header class="top">
     <div>
       <h1 class="date" id="date"></h1>
+      <div class="date-fa" id="dateFa" dir="rtl" lang="fa"></div>
       <div class="summary" id="summary"></div>
     </div>
   </header>
@@ -34,9 +35,50 @@
   <main class="boards" id="boards"></main>
   <main class="doc" id="doc" hidden>
     <div class="doc-paper">
+      <div class="doc-tools" id="docTools" role="toolbar" aria-label="Formatting">
+        <button data-cmd="h1" title="Big heading  (# )">H1</button>
+        <button data-cmd="h2" title="Small heading  (## )">H2</button>
+        <button data-cmd="p" title="Plain text">Text</button>
+        <span class="sep"></span>
+        <button data-cmd="ul" title="Bullet list  (- )">• List</button>
+        <button data-cmd="ol" title="Numbered list  (1. )">1. List</button>
+        <button data-cmd="todo" title="Task  ([] )">☐ Task</button>
+        <button data-cmd="quote" title="Quote  (> )">❝</button>
+        <span class="sep"></span>
+        <button data-cmd="bold" title="Bold  (Ctrl/⌘ B)"><b>B</b></button>
+        <button data-cmd="italic" title="Italic  (Ctrl/⌘ I)"><i>I</i></button>
+        <button data-cmd="underline" title="Underline  (Ctrl/⌘ U)"><u>U</u></button>
+        <span class="sep"></span>
+        <button data-cmd="draw" title="Add a drawing">✎ Draw</button>
+        <button data-cmd="dir" title="Writing direction: auto → right-to-left → left-to-right">⇆</button>
+      </div>
       <div class="doc-body" id="docBody" contenteditable="true" spellcheck="true" dir="auto" data-ph="Start writing…" aria-label="Notepad"></div>
     </div>
   </main>
+
+  <dialog id="sketchDlg" class="sketch-dlg">
+    <div class="sketch-top" id="sketchTools">
+      <button data-color="#1f2328" class="swatch-dot on" style="--c:#1f2328" aria-label="Black"></button>
+      <button data-color="#8b9198" class="swatch-dot" style="--c:#8b9198" aria-label="Gray"></button>
+      <button data-color="#d64545" class="swatch-dot" style="--c:#d64545" aria-label="Red"></button>
+      <button data-color="#2f6fd1" class="swatch-dot" style="--c:#2f6fd1" aria-label="Blue"></button>
+      <button data-color="#2f9e5a" class="swatch-dot" style="--c:#2f9e5a" aria-label="Green"></button>
+      <button data-color="#e8a317" class="swatch-dot" style="--c:#e8a317" aria-label="Yellow"></button>
+      <span class="sep"></span>
+      <button data-size="2" class="size-dot" style="--d:4px" aria-label="Thin"></button>
+      <button data-size="4" class="size-dot on" style="--d:7px" aria-label="Medium"></button>
+      <button data-size="9" class="size-dot" style="--d:12px" aria-label="Thick"></button>
+      <span class="sep"></span>
+      <button data-tool="erase">Eraser</button>
+      <button data-tool="undo">Undo</button>
+      <button data-tool="clear">Clear</button>
+    </div>
+    <canvas id="sketchCanvas"></canvas>
+    <div class="sketch-foot">
+      <button class="btn ghost" id="sketchCancel">Cancel</button>
+      <button class="btn" id="sketchSave">Done</button>
+    </div>
+  </dialog>
 
   <dialog id="menu">
     <h3>Text size</h3>
