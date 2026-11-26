@@ -1,37 +1,40 @@
-/* The bot's brain: an AI model reads your message (Farsi or English, text or photo),
-   looks at your dashboard through these tools, changes it, and answers. */
+/* The bot's brain: an AI model you chat with about anything (Farsi or English, text, photos, files),
+   which can also make pictures and manage your dashboard through these tools. */
 // A tool the AI can call: a name, what it does, its inputs (JSON Schema) and the code that runs.
 const tool = t => t;
+import { makeImage } from './media.js';
 import {
   live, isTask, boardList, pageList, findBoard, boardName, createBoard, inbox, addItem, openTasks, byDue,
   notepadText, nowKey, persianDate, weekdayName,
 } from './data.js';
 
-const SYSTEM = `You are Life, a personal assistant inside Telegram, connected to the user's personal dashboard "Life".
-The dashboard has pages; boards pages hold boards (cards) of items. An item is a task (can be ticked, can have a deadline),
-a note line, a heading or a bullet. Notepad pages hold free writing.
+const SYSTEM = `You are Life, the user's own smart assistant in Telegram, like ChatGPT, Claude or Gemini in a chat app.
+You can talk about anything: answer questions, explain, teach, translate, write and edit texts, brainstorm, plan,
+solve problems, write code, give advice, look at photos and files the user sends, and make pictures.
+You are also connected to the user's personal dashboard "Life" and can manage it.
 
-How to work:
-- Act, don't ask. When the user tells you something to do, remember, buy, study or attend, add it as a task right away.
-  Ask a question only when you truly cannot guess (e.g. which of two similar tasks to delete).
-- Pick the best existing board from the board list by meaning (e.g. "buy milk" → a shopping or personal board,
-  "exam" → study). If nothing fits, leave board empty and it goes to Inbox. Create a board only when the user asks.
-- One message can hold several things: add each as its own item.
-- Deadlines: due is "YYYY-MM-DD" for a day or "YYYY-MM-DDTHH:MM" (24h, local time) for an exact time.
-  A task with a time also works as a reminder: the bot messages the user at that time.
-  "remind me in 2 hours" → a task due now + 2 hours. Resolve "tomorrow", "next Saturday", Persian dates
-  (e.g. ۱۰ دی) and Persian/Arabic digits into these formats using the current date given below.
-- To change, tick off, move or delete something, first find it with find_items, then use update_items with its id.
-- For questions ("what do I have this week?", "what did I finish today?", "what did I write about X?"), look it up first.
-- A photo may be a handwritten list, a whiteboard, a screenshot or a schedule: pull out the tasks and add them.
-- Keep the user's own wording for titles; clean up only obvious typos. Don't add emojis to titles.
+Talking:
+- Reply in the language the user writes in (Farsi → Farsi, English → English), naturally, like a smart, warm friend.
+- Match the length to the question: short for small talk and simple questions, complete and well structured
+  for real questions (steps, lists, examples, code). Don't pad, don't repeat the question.
+- Write in Markdown: **bold**, *italic*, lists, \`code\` and \`\`\` code blocks \`\`\`. Headings are fine for long answers. Avoid tables.
+- You remember the recent conversation; use it. Be honest when you don't know something or when it may be out of date.
 
-How to answer:
-- Reply in the language the user wrote in (Farsi → Farsi, English → English).
-- Short and clear, like a friendly, capable assistant. Say what you did in one or two lines.
-  When you list tasks, one per line with "○ ", with the deadline in a friendly way (today, tomorrow 18:00, Saturday, 2 days late).
-- Formatting is Telegram HTML: only <b>, <i>, <u>, <s>, <code> are allowed. No Markdown, no headings, no tables.
-  Write & < > in plain text as &amp; &lt; &gt;.
+Pictures:
+- When the user asks for a picture, drawing, photo, logo, wallpaper, poster, illustration, etc., call make_image.
+  Write the prompt in English, detailed (subject, style, lighting, colours, composition), even if the user wrote in Farsi.
+  For text inside an image, keep it short. After the tool, reply with one short line (the picture is sent by itself).
+
+The dashboard (use these tools only when the message is about tasks, plans, reminders or notes):
+- Pages hold boards (cards) of items. An item is a task (can be ticked, can have a deadline), a note, a heading or a bullet.
+- When the user tells you something to do, remember, buy, study or attend, add it as a task right away; don't ask.
+- Pick the best board by meaning (shopping → personal, exam → study). If none fits, leave board empty (→ Inbox).
+  Create a board only when asked. One message can hold several tasks: add each.
+- Deadlines: "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM" (24h, local). A task with a time is also a reminder at that time.
+  "remind me in 2 hours" → due now + 2 hours. Resolve tomorrow, next Saturday, Persian dates (۱۰ دی) and Persian digits.
+- To change, tick off, move or delete, first find_items, then update_items with the id.
+- A photo of a list, a whiteboard or a schedule: add its tasks only if the user wants that; otherwise just talk about it.
+- When you list tasks: one per line with "○ ", deadlines in a friendly way (today, tomorrow 18:00, 2 days late).
 - Never mention ids, tools or JSON.`;
 
 const itemView = (s, t) => ({
@@ -39,8 +42,24 @@ const itemView = (s, t) => ({
   ...(isTask(t) && { done: !!t.done, ...(t.doneOn && { doneOn: t.doneOn }), ...(t.due && { due: t.due }) }),
 });
 
-function tools(s, env, log) {
+function tools(s, env, log, out) {
   return [
+    tool({
+      name: 'make_image',
+      description: 'Make a picture from a description and send it to the user.',
+      input_schema: {
+        type: 'object', additionalProperties: false, required: ['prompt'],
+        properties: {
+          prompt: { type: 'string', description: 'Detailed description of the picture, in English.' },
+          shape: { type: 'string', enum: ['square', 'portrait', 'landscape'], description: 'Default square. Portrait for phone wallpapers/posters, landscape for banners/desktop.' },
+        },
+      },
+      run: async ({ prompt, shape }) => {
+        if (out.images.length >= 4) return 'Limit reached: at most 4 pictures per message.';
+        out.images.push(await makeImage(env, String(prompt), shape));
+        return 'Done: the picture will be sent to the user right after your reply.';
+      },
+    }),
     tool({
       name: 'find_items',
       description: 'Search the dashboard items. With no filters, returns all open tasks. Use it before changing anything, and to answer questions.',
@@ -181,35 +200,38 @@ ${notepads.length ? `Notepad pages: ${notepads.join(', ')}\n` : ''}Open tasks: $
 }
 
 export async function think(env, data, { text, image }) {
-  const log = [];
-  // A short memory of the conversation (last few exchanges, forgotten after 6 idle hours).
-  const fresh = data.bot.chat.filter(m => Date.now() - m.at < 6 * 3600e3).slice(-12);
+  const log = [], out = { images: [] };
+  // The recent conversation (last 20 messages, forgotten after a day without talking; /new clears it).
+  const fresh = data.bot.chat.filter(m => Date.now() - m.at < 24 * 3600e3).slice(-20);
   const history = fresh.map(m => ({ role: m.r === 'u' ? 'user' : 'assistant', content: m.t }));
   while (history.length && history[0].role !== 'user') history.shift();
   const prompt = `${context(data.s, env)}\n\n${text || '(photo)'}`;
 
-  const reply = (await chat(env, data, history, prompt, image, log))
-    .replace(/<think>[\s\S]*?<\/think>/g, '').trim() || '✓';
+  const reply = (await chat(env, data, history, prompt, image, log, out))
+    .replace(/<think>[\s\S]*?<\/think>/g, '').trim() || (out.images.length ? '' : '✓');
 
-  data.bot.chat = [...fresh, { r: 'u', t: text || '(sent a photo)', at: Date.now() }, { r: 'a', t: reply, at: Date.now() }].slice(-12);
-  data.bot.lastAdded = log.map(l => l.added).filter(Boolean);
-  return reply;
+  const short = x => (x.length > 3000 ? x.slice(0, 3000) + ' …' : x);
+  data.bot.chat = [...fresh,
+    { r: 'u', t: short(text || '(sent a photo)') + (image ? ' [photo]' : ''), at: Date.now() },
+    { r: 'a', t: short(reply || '(sent a picture)') + (out.images.length ? ` [sent ${out.images.length} picture(s)]` : ''), at: Date.now() },
+  ].slice(-20);
+  return { text: reply, images: out.images };
 }
 
 // Works with any OpenAI-compatible chat API that supports tool calling:
 // NVIDIA (default), OpenRouter, Groq, Google Gemini, OpenAI, DeepSeek, Mistral…
-// Change AI_URL and AI_MODEL in wrangler.toml and the AI_API_KEY secret to switch.
-async function chat(env, data, history, prompt, image, log) {
+// Set AI_URL, AI_MODEL and AI_API_KEY in the Cloudflare dashboard to switch.
+async function chat(env, data, history, prompt, image, log, out) {
   const url = aiUrl(env);
   const model = env.AI_MODEL || 'z-ai/glm-5.3-flash';
-  const list = tools(data.s, env, log);
+  const list = tools(data.s, env, log, out);
   const defs = list.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
   const user = image
     ? [{ type: 'image_url', image_url: { url: `data:${image.type};base64,${image.data}` } }, { type: 'text', text: prompt }]
     : prompt;
   const messages = [{ role: 'system', content: SYSTEM }, ...history, { role: 'user', content: user }];
-  let extras = { max_tokens: 4096, temperature: 0.3 }; // dropped if a provider doesn't accept them
-  const deadline = Date.now() + 25000; // Cloudflare gives background work about 30 seconds
+  let extras = { max_tokens: 8192, temperature: 0.6 }; // dropped if a provider doesn't accept them
+  const deadline = Date.now() + 55000;
 
   for (let round = 0; round < 10; round++) {
     const r = await post(env, url, { model, messages, tools: defs, tool_choice: 'auto', stream: false, ...extras }, deadline - Date.now());
@@ -241,7 +263,7 @@ async function chat(env, data, history, prompt, image, log) {
 }
 
 async function post(env, url, body, ms) {
-  if (ms < 1000) throw new Error('The AI service is too slow right now (over 25 seconds). Try again, or choose a faster model (AI_MODEL).');
+  if (ms < 1000) throw new Error('The AI service is too slow right now. Try again, or choose a faster model (AI_MODEL).');
   try {
     return await fetch(url, {
       method: 'POST', signal: AbortSignal.timeout(ms),
@@ -249,7 +271,7 @@ async function post(env, url, body, ms) {
       body: JSON.stringify(body),
     });
   } catch (e) {
-    if (e.name === 'TimeoutError' || e.name === 'AbortError') throw new Error('The AI service is too slow right now (over 25 seconds). Try again, or choose a faster model (AI_MODEL).');
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') throw new Error('The AI service is too slow right now. Try again, or choose a faster model (AI_MODEL).');
     throw new Error(`Could not reach the AI service: ${e.message}`);
   }
 }

@@ -5,6 +5,8 @@
    Secrets: TELEGRAM_TOKEN, GITHUB_TOKEN, WEBHOOK_SECRET, CHAT_ID, AI_API_KEY
    Settings in wrangler.toml: TZ, LANG, MORNING, EVENING, AI_URL, AI_MODEL, GIST_ID */
 import { think, checkAI } from './brain.js';
+import { mdToHtml, splitMd } from './format.js';
+import { makeImage, transcribe } from './media.js';
 import { open, esc, live, isTask, boardList, boardName, openTasks, byDue, dayKey, nowKey, addDays, addMinutes, persianDate, inbox, addItem, findBoard } from './data.js';
 
 /* ---------- words (Farsi by default, LANG = "en" for English) ---------- */
@@ -17,23 +19,28 @@ const T = {
     open: n => `${fa(n)} کار باز داری.`, noOpen: 'هیچ کار بازی نداری 🎉', reminder: '⏰ یادآوری',
     btnDone: '✓ انجام شد', btn1h: '+۱ ساعت', btnTmr: 'فردا', ticked: '✓ انجام شد', snoozed: 'باشه، بعداً یادت می‌اندازم',
     moved: 'رفت برای فردا', gone: 'این کار دیگر نیست.', forgot: 'گفتگو از اول شروع شد. 🧹',
-    voice: 'فعلاً پیام صوتی را نمی‌فهمم. لطفاً بنویس، یا عکس بفرست.', error: 'یک مشکل پیش آمد:', tap: 'برای تیک زدن بزن:',
+    voice: 'برای فهمیدن پیام صوتی باید STT_MODEL را در Cloudflare تنظیم کنی. فعلاً لطفاً بنویس.',
+    voiceEmpty: 'چیزی در پیام صوتی نشنیدم.', fileBig: 'این فایل برای خواندن خیلی بزرگ است (حداکثر ۳۰۰ کیلوبایت).',
+    fileType: 'فعلاً فقط عکس و فایل‌های متنی (txt، md، csv، json، کد…) را می‌توانم بخوانم.',
+    imgHow: 'بعد از /img بنویس چه عکسی می‌خواهی، مثلاً:\n/img a cozy cafe in Tehran at night, watercolor',
+    error: 'یک مشکل پیش آمد:', tap: 'برای تیک زدن بزن:',
     added: b => `○ به ${b} اضافه شد:`,
-    help: `<b>Life</b> — دستیار شخصی‌ات، وصل به داشبورد.
+    help: `<b>Life</b> — دستیار هوشمند تو، مثل یک چت‌بات، وصل به داشبوردت.
 
-هر چیزی بنویس، مثل حرف زدن معمولی:
-• «فردا ساعت ۵ به مامان زنگ بزنم»
-• «شیر، نان و تخم‌مرغ بخرم»
-• «امتحان ریاضی شنبه‌ی بعد، بذار تو درس»
-• «این هفته چی دارم؟»
-• «تمرین فیزیک رو انجام دادم»
-• «دو ساعت دیگه یادم بنداز قرص بخورم»
-• «تو یادداشت‌هام درباره‌ی پروژه چی نوشتم؟»
-• یک عکس از لیست یا برنامه بفرست تا کارهایش اضافه شود.
+هر چیزی بپرس یا بخواه، فارسی یا انگلیسی:
+• «فرق هوش مصنوعی و یادگیری ماشین چیه؟»
+• «یک ایمیل رسمی برای مرخصی بنویس»
+• «این متن رو به انگلیسی ترجمه کن: …»
+• «یک عکس از یک گربه‌ی فضانورد بکش» 🎨
+• یک عکس یا فایل متنی بفرست و درباره‌اش بپرس
+• روی یک پیام Reply بزن تا درباره‌ی همان ادامه بدهیم
 
-هر روز صبح خلاصه‌ی روز و شب مرور روز را می‌فرستم. کارهایی که ساعت دارند سر وقت یادآوری می‌شوند.
+و داشبوردت را هم مدیریت می‌کنم:
+• «فردا ساعت ۵ به مامان زنگ بزنم» · «این هفته چی دارم؟» · «تمرین فیزیک رو انجام دادم»
 
-/today امروز · /list همه‌ی کارها · /new شروع گفتگوی تازه · /status بررسی اتصال‌ها`,
+هر صبح خلاصه‌ی روز و هر شب مرور روز را می‌فرستم و کارهایی که ساعت دارند سر وقت یادآوری می‌شوند.
+
+/new گفتگوی تازه · /img ساختن سریع عکس · /today امروز · /list همه‌ی کارها · /status بررسی اتصال‌ها`,
   },
   en: {
     late: 'Late', today: 'today', tomorrow: 'tomorrow', daysLate: n => `${n} day${n > 1 ? 's' : ''} late`,
@@ -42,23 +49,28 @@ const T = {
     open: n => `${n} open task${n === 1 ? '' : 's'}.`, noOpen: 'No open tasks 🎉', reminder: '⏰ Reminder',
     btnDone: '✓ Done', btn1h: '+1 hour', btnTmr: 'Tomorrow', ticked: '✓ Done', snoozed: 'OK, I’ll remind you later',
     moved: 'Moved to tomorrow', gone: 'That task is gone.', forgot: 'Fresh start. 🧹',
-    voice: 'I can’t understand voice messages yet. Please type it, or send a photo.', error: 'Something went wrong:', tap: 'Tap to tick off:',
+    voice: 'To understand voice messages, set STT_MODEL in Cloudflare. For now, please type.',
+    voiceEmpty: 'I couldn’t hear anything in that voice message.', fileBig: 'That file is too big to read (max 300 KB).',
+    fileType: 'For now I can read photos and text files (txt, md, csv, json, code…).',
+    imgHow: 'Write what picture you want after /img, e.g.\n/img a cozy cafe at night, watercolor',
+    error: 'Something went wrong:', tap: 'Tap to tick off:',
     added: b => `○ Added to ${b}:`,
-    help: `<b>Life</b> — your personal assistant, connected to your dashboard.
+    help: `<b>Life</b> — your smart assistant, like a chatbot, connected to your dashboard.
 
-Just write, like talking to a person:
-• "Call mom tomorrow at 5"
-• "Buy milk, bread and eggs"
-• "Math exam next Saturday, put it in Study"
-• "What do I have this week?"
-• "I finished the physics homework"
-• "Remind me to take my pills in 2 hours"
-• "What did I write in my notes about the project?"
-• Send a photo of a list or a schedule and I'll add its tasks.
+Ask or request anything:
+• "What’s the difference between AI and machine learning?"
+• "Write a formal email asking for a day off"
+• "Translate this into Farsi: …"
+• "Draw a cat astronaut" 🎨
+• Send a photo or a text file and ask about it
+• Reply to a message to continue about it
 
-Every morning I send your day, every evening a short review. Tasks with a time get a reminder on time.
+And I manage your dashboard:
+• "Call mom tomorrow at 5" · "What do I have this week?" · "I finished the physics homework"
 
-/today today · /list all tasks · /new fresh conversation · /status check connections`,
+Every morning I send your day and every evening a review; tasks with a time get a reminder.
+
+/new fresh conversation · /img quick picture · /today today · /list all tasks · /status check connections`,
   },
 };
 const L = env => T[env.LANG === 'en' ? 'en' : 'fa'];
@@ -127,23 +139,65 @@ function listView(s, env) {
 
 /* ---------- messages ---------- */
 async function photoOf(env, m) {
-  const fileId = m.photo?.at(-1)?.file_id || (m.document?.mime_type?.startsWith('image/') && m.document.file_id);
+  const fileId = m.photo?.at(-1)?.file_id || (m.document?.mime_type?.startsWith('image/') && m.document.file_id) || (m.sticker && !m.sticker.is_animated && !m.sticker.is_video && m.sticker.file_id);
   if (!fileId) return null;
-  const f = await tg(env, 'getFile', { file_id: fileId });
-  const buf = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_TOKEN}/${f.result.file_path}`).then(r => r.arrayBuffer());
-  let bin = ''; const bytes = new Uint8Array(buf);
+  const { bytes, path } = await download(env, fileId);
+  let bin = '';
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  const ext = f.result.file_path.split('.').pop().toLowerCase();
+  const ext = path.split('.').pop().toLowerCase();
   const type = m.document?.mime_type || ({ png: 'image/png', webp: 'image/webp', gif: 'image/gif' }[ext] || 'image/jpeg');
   return { type, data: btoa(bin) };
 }
 
+// Download a file the user sent to the bot.
+async function download(env, fileId) {
+  const f = await tg(env, 'getFile', { file_id: fileId });
+  if (!f.ok) throw new Error('Telegram could not give the file (bots can download files up to 20 MB).');
+  return { bytes: new Uint8Array(await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_TOKEN}/${f.result.file_path}`).then(r => r.arrayBuffer())), path: f.result.file_path };
+}
+
+// Text-like files (txt, md, csv, json, code…) are read and given to the AI.
+const TEXT_FILE = /\.(txt|md|markdown|csv|tsv|json|xml|html?|css|js|ts|py|java|c|cpp|h|cs|go|rs|rb|php|sh|ya?ml|toml|ini|log|sql|srt)$/i;
+
+async function sendPhoto(env, img, caption) {
+  const form = new FormData();
+  form.append('chat_id', env.CHAT_ID);
+  form.append('photo', new Blob([img.bytes], { type: img.type }), 'image.' + (img.type.split('/')[1] || 'jpg'));
+  if (caption) form.append('caption', caption.slice(0, 1000));
+  const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendPhoto`, { method: 'POST', body: form }).then(r => r.json());
+  if (!r.ok) { // too big for a photo: send it as a file
+    form.delete('photo'); form.append('document', new Blob([img.bytes], { type: img.type }), 'image.' + (img.type.split('/')[1] || 'jpg'));
+    await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendDocument`, { method: 'POST', body: form });
+  }
+}
+
+// An AI answer: Markdown → Telegram messages (split if long), then any pictures.
+async function sendAnswer(env, { text, images }) {
+  for (const img of images) await sendPhoto(env, img);
+  for (const part of splitMd(text || '')) await send(env, mdToHtml(part));
+}
+
+// Keep "typing…" (or "sending photo…") showing while the AI works.
+function busy(env, action = 'typing') {
+  const ping = () => tg(env, 'sendChatAction', { chat_id: env.CHAT_ID, action }).catch(() => {});
+  ping();
+  const timer = setInterval(ping, 4500);
+  return () => clearInterval(timer);
+}
+
 async function onMessage(env, m) {
   const w = L(env);
-  if (m.voice || m.audio || m.video_note) return send(env, w.voice);
-  const text = (m.text || m.caption || '').trim();
+  let text = (m.text || m.caption || '').trim();
   const cmd = text.startsWith('/') ? text.slice(1).split(/[\s@]/)[0].toLowerCase() : null;
+  const arg = cmd ? text.replace(/^\/\S+\s*/, '') : '';
   if (cmd === 'start' || cmd === 'help') return send(env, w.help);
+
+  if (cmd === 'img' || cmd === 'image') { // quick picture, no AI needed
+    if (!arg) return send(env, w.imgHow);
+    const stop = busy(env, 'upload_photo');
+    try { await sendPhoto(env, await makeImage(env, arg)); } finally { stop(); }
+    return;
+  }
 
   const data = await open(env);
   if (cmd === 'today') { const v = todayView(data.s, env); return send(env, v.msg, doneButtons(v.tasks, env)); }
@@ -156,6 +210,8 @@ async function onMessage(env, m) {
       `✓ Telegram`,
       `✓ Dashboard: ${live(data.s.pages).length} pages, ${live(data.s.boards).length} boards, ${openTasks(data.s).length} open tasks`,
       ai,
+      `${env.IMAGE_MODEL ? '✓ Pictures: ' + esc(env.IMAGE_MODEL) : '✓ Pictures: free service (Pollinations)'}`,
+      `${env.STT_MODEL ? '✓ Voice: ' + esc(env.STT_MODEL) : '✗ Voice: not set up (STT_MODEL)'}`,
       data.bot.lastError ? `\nLast problem: <code>${esc(data.bot.lastError)}</code>` : '',
     ].join('\n'));
   }
@@ -169,12 +225,37 @@ async function onMessage(env, m) {
     return send(env, `${w.added(esc(b.name))} ${esc(t.title)}`);
   }
 
-  await tg(env, 'sendChatAction', { chat_id: env.CHAT_ID, action: 'typing' });
-  const image = await photoOf(env, m);
-  if (!text && !image) return;
-  const reply = await think(env, data, { text: [m.reply_to_message?.text && `(replying to: "${m.reply_to_message.text.slice(0, 500)}")`, text].filter(Boolean).join('\n'), image });
-  await data.save();
-  return send(env, reply);
+  const stop = busy(env);
+  try {
+    // Voice messages: turned into text first (needs STT_MODEL).
+    const voice = m.voice || m.audio || m.video_note;
+    if (voice) {
+      if (!env.STT_MODEL) return send(env, w.voice);
+      const said = await transcribe(env, (await download(env, voice.file_id)).bytes);
+      if (!said) return send(env, w.voiceEmpty);
+      await send(env, `🎤 <i>${esc(said)}</i>`);
+      text = [text, said].filter(Boolean).join('\n');
+    }
+
+    // Files: pictures are looked at, text files are read.
+    let image = await photoOf(env, m);
+    const doc = m.document;
+    if (doc && !image) {
+      const name = doc.file_name || '';
+      if (TEXT_FILE.test(name) || doc.mime_type?.startsWith('text/')) {
+        if (doc.file_size > 300000) return send(env, w.fileBig);
+        const content = new TextDecoder().decode((await download(env, doc.file_id)).bytes);
+        text = `${text || 'Look at this file.'}\n\n<file name="${name}">\n${content.slice(0, 100000)}\n</file>`;
+      } else return send(env, w.fileType);
+    }
+    if (m.sticker) text = text || `(sticker ${m.sticker.emoji || ''})`;
+    if (!text && !image) return;
+
+    const quoted = m.reply_to_message?.text || m.reply_to_message?.caption;
+    const answer = await think(env, data, { text: [quoted && `(replying to: "${quoted.slice(0, 1500)}")`, text].filter(Boolean).join('\n'), image });
+    await data.save();
+    await sendAnswer(env, answer);
+  } finally { stop(); }
 }
 
 async function onButton(env, q) {
@@ -222,7 +303,7 @@ async function tick(env) {
 }
 
 export default {
-  async fetch(req, env, ctx) {
+  async fetch(req, env) {
     const url = new URL(req.url);
     // One-time setup: open https://<your-worker>/setup?secret=<WEBHOOK_SECRET> in a browser.
     if (url.pathname === '/setup') {
@@ -230,9 +311,10 @@ export default {
       const hook = await tg(env, 'setWebhook', { url: `${url.origin}/telegram`, secret_token: env.WEBHOOK_SECRET, allowed_updates: ['message', 'callback_query'], drop_pending_updates: true });
       const isFa = env.LANG !== 'en';
       await tg(env, 'setMyCommands', { commands: [
+        { command: 'new', description: isFa ? 'شروع گفتگوی تازه' : 'Fresh conversation' },
+        { command: 'img', description: isFa ? 'ساختن عکس' : 'Make a picture' },
         { command: 'today', description: isFa ? 'کارهای امروز' : 'Today' },
         { command: 'list', description: isFa ? 'همه‌ی کارهای باز' : 'All open tasks' },
-        { command: 'new', description: isFa ? 'شروع گفتگوی تازه' : 'Fresh conversation' },
         { command: 'status', description: isFa ? 'بررسی اتصال‌ها' : 'Check connections' },
         { command: 'help', description: isFa ? 'راهنما' : 'Help' },
       ] });
@@ -248,17 +330,16 @@ export default {
       if (u.message) await tg(env, 'sendMessage', { chat_id: chat, text: `This is a private bot. Your chat id is ${chat}` });
       return new Response('ok');
     }
-    // Answer Telegram right away and do the work in the background, so a slow AI
-    // never holds up your next messages.
-    ctx.waitUntil((async () => {
-      try {
-        if (u.message) await onMessage(env, u.message);
-        else if (u.callback_query) await onButton(env, u.callback_query);
-      } catch (e) {
-        console.error(e);
-        await send(env, `⚠️ ${L(env).error} ${esc(e.message || String(e))}`);
-      }
-    })());
+    // Telegram re-sends a message if we take long to answer; do each one only once.
+    const seen = typeof caches !== 'undefined' && new Request(`https://life-bot.local/update/${u.update_id}`);
+    if (seen) { if (await caches.default.match(seen)) return new Response('ok'); await caches.default.put(seen, new Response('1', { headers: { 'Cache-Control': 'max-age=3600' } })); }
+    try {
+      if (u.message) await onMessage(env, u.message);
+      else if (u.callback_query) await onButton(env, u.callback_query);
+    } catch (e) {
+      console.error(e);
+      await send(env, `⚠️ ${L(env).error} ${esc(e.message || String(e))}`);
+    }
     return new Response('ok');
   },
   async scheduled(_event, env, ctx) { ctx.waitUntil(tick(env)); },

@@ -47,7 +47,7 @@ Without sync, data stays on the device. ⋯ → Export / Import works as a manua
 
 ## Telegram bot
 
-A private, AI-powered Telegram bot (Farsi or English; works with NVIDIA or any OpenAI-compatible API): tell it things in plain words and it adds, finds, ticks off and moves tasks,
+A private AI chatbot in Telegram (Farsi or English; NVIDIA or any OpenAI-compatible API): chat about anything, make pictures, read photos and files, and manage tasks in plain words:
 reads photos of lists, answers questions about your boards and notes, reminds you on time, and sends a morning brief and evening review.
 It uses the same sync gist. Step-by-step setup (in Farsi) is in [bot/README.md](bot/README.md).
 
