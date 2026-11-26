@@ -749,3 +749,34 @@ header.top .date::after { content: '·'; margin-left: 14px; color: #5c6268; font
 }
 .canvas-add:hover { color: var(--fg); border-color: var(--fg); }
 :root.dark .canvas-add { border-color: #2a2e31; }
+
+/* ============ phones and tablets: comfortable to use with a finger ============ */
+/* iPhone zooms the whole page in when you tap a text field under 16px; keep them at 16px. */
+@media (hover: none), (max-width: 640px) {
+  input:not(.board-name), select, textarea { font-size: 16px !important; }
+}
+/* Small buttons keep their look but get an invisible, finger-sized area around them. */
+@media (hover: none) {
+  .check, .item .del, .item .tool, .board-menu button, .page-tab.add, .swatch { position: relative; }
+  .check::after, .item .del::after, .item .tool::after, .board-menu button::after, .page-tab.add::after,
+  .swatch::after, .sheet-send::after, .sheet-del::after, .handle::after { content: ''; position: absolute; inset: -9px; }
+  .page-tab.add { padding-left: 10px; padding-right: 10px; }
+}
+@media (max-width: 640px) {
+  /* keep "3 h 40 min late" together; the date part may go to its own line on very narrow screens */
+  .due b { white-space: nowrap; }
+  /* the notepad toolbar and the pen bar show every button (two rows) instead of hiding some off-screen */
+  .doc-bars .doc-tools, .pen-mode .doc-bars .pen-bar, .doc-bars .pen-bar {
+    flex-wrap: wrap; overflow-x: visible; justify-content: center; row-gap: 2px; column-gap: 2px; padding: 4px 6px;
+  }
+  .doc-bars .doc-tools .sep, .doc-bars .pen-bar .sep { display: none; }
+  .doc-bars .doc-tools button, .doc-bars .pen-bar button { min-height: 36px; min-width: 36px; padding: 4px 9px; }
+  .doc-bars .pen-bar .ink-dot, .doc-bars .pen-bar .ink-size { min-width: 36px; }
+}
+/* very narrow phones (e.g. the small iPhone SE): smaller header text, more room for board names */
+@media (max-width: 360px) {
+  .tb-day { font-size: 15px; } .topbar .clock-time { font-size: 15px; } .tb-week { font-size: 9px; }
+  .topbar .top-actions { gap: 6px; }
+  .board-menu button { width: 24px; }
+  .board-count { display: none; }
+}
