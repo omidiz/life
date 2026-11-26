@@ -10,8 +10,8 @@ It's an installable web app (PWA) that works offline.
   tasks you can tick (`[] `), quotes (`> `) and **bold** / *italic* / underline (Ctrl/⌘ B, I, U).
   **✎ Draw** turns on a pen to write on top of the page: tick, circle, underline or highlight your text (pens, highlighter,
   thin/thick, eraser, undo, clear; Done goes back to typing). It saves as you type, shows a word count, and syncs.
-- **Sheets**: a notepad page can hold several sheets. Point at a sheet and use the **+** on any side to add one to its
-  left, right, above or below; drag a sheet's left or right edge to make it wider or narrower; × deletes a sheet.
+- **Sheets**: a notepad page can hold several sheets. **+ Sheet** in the toolbar adds one to the left, right, above or
+  below the sheet you're writing in; drag a sheet's left or right edge to make it wider or narrower; × deletes a sheet.
   **⇢ Board** turns a sheet into a card on a board page (first heading = title, lists, tasks and notes carry over).
 - **English and Farsi**: every line picks its own direction, so Farsi runs right-to-left and English left-to-right, with
   checkboxes and bullets on the right side. ⇆ in the notepad toolbar forces a line to RTL or LTR. The date, the Persian date and a live Tehran clock stay on screen in the header under the top bar.

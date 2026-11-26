@@ -54,6 +54,14 @@
           <span class="sep"></span>
           <button data-cmd="draw" class="draw-btn" title="Draw on the page with a pen">✎ Draw</button>
           <button data-cmd="dir" title="Writing direction: auto → right-to-left → left-to-right">⇆</button>
+          <span class="sep"></span>
+          <span class="sheet-menu-wrap">
+            <button data-cmd="addsheet" title="Add a sheet next to the one you're writing in">+ Sheet</button>
+            <span class="sheet-menu" id="sheetMenu" hidden>
+              <button data-addsheet="left">← Left</button><button data-addsheet="right">→ Right</button>
+              <button data-addsheet="up">↑ Above</button><button data-addsheet="down">↓ Below</button>
+            </span>
+          </span>
         </div>
         <div class="pen-bar" id="penBar" role="toolbar" aria-label="Pen">
           <button data-pen="black" class="ink-dot" style="--c:#1f2328" aria-label="Black pen"></button>

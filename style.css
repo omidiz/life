@@ -643,3 +643,14 @@ body.sizing, body.sizing * { cursor: ew-resize !important; user-select: none; }
 @keyframes sent { 0%, 30% { box-shadow: 0 0 0 3px #7cc4ff, 0 12px 30px rgba(0,0,0,.15); } 100% { box-shadow: none; } }
 /* side + buttons sit near the top, so the middle of each edge is free for resizing */
 .sheet-add.l, .sheet-add.r { top: 56px; transform: none; }
+/* sheets are added from the toolbar, not from + buttons on the sheets */
+.sheet-add { display: none !important; }
+.sheet-menu-wrap { position: relative; display: inline-flex; }
+.sheet-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; display: grid; grid-template-columns: 1fr 1fr; gap: 2px;
+  min-width: 190px; padding: 6px; background: var(--panel); border: 1px solid #dfe2e6; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.1);
+}
+.sheet-menu[hidden] { display: none; }
+.sheet-menu button { text-align: start; white-space: nowrap; }
+:root.dark .sheet-menu { border-color: #2a2e31; }
+@media (max-width: 640px) { .sheet-menu { position: fixed; top: auto; right: 12px; left: 12px; } }

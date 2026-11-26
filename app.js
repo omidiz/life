@@ -319,6 +319,7 @@
     p.rows = p.rows.map(r => r.filter(c => c.id !== id)).filter(r => r.length);
     delete p.sheets[id]; savePage(); shownLayout = null; activeSheet = null; document.activeElement?.blur?.(); renderDoc();
   };
+  addEventListener('click', e => { if (!e.target.closest('.sheet-menu-wrap') && $('#sheetMenu')) $('#sheetMenu').hidden = true; });
   // Make a sheet wider or narrower by dragging its left or right edge.
   let sizing = null;
   $('#sheets').addEventListener('pointerdown', e => {
@@ -460,9 +461,12 @@
   $('#docTools').addEventListener('pointerdown', e => { if (e.target.closest('button')) e.preventDefault(); });
   $('#sheets').addEventListener('pointerdown', e => { if (e.target.closest('.sk-bar')) e.preventDefault(); });
   $('#docTools').addEventListener('click', e => {
+    const dirBtn = e.target.closest('[data-addsheet]');
+    if (dirBtn) { $('#sheetMenu').hidden = true; const s = sheetOf(body()) || sheets()[0]; return s && addSheet(s.dataset.sheet, dirBtn.dataset.addsheet); }
     const btn = e.target.closest('button[data-cmd]'); if (!btn) return;
     const cmd = btn.dataset.cmd;
     if (cmd === 'draw') return setPen(!pen2.on);
+    if (cmd === 'addsheet') { $('#sheetMenu').hidden = !$('#sheetMenu').hidden; return; }
     const b = body(); if (!b) return;
     if (document.activeElement !== b) b.focus();
     let blocks = selectedBlocks(); if (!blocks.length) { normalize(b); blocks = [b.lastElementChild].filter(x => x?.dataset.t); }
