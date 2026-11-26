@@ -1,7 +1,7 @@
-/* The bot's brain: Claude reads your message (Farsi or English, text or photo),
+/* The bot's brain: an AI model reads your message (Farsi or English, text or photo),
    looks at your dashboard through these tools, changes it, and answers. */
-import Anthropic from '@anthropic-ai/sdk';
-import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
+// A tool the AI can call: a name, what it does, its inputs (JSON Schema) and the code that runs.
+const tool = t => t;
 import {
   live, isTask, boardList, pageList, findBoard, boardName, createBoard, inbox, addItem, openTasks, byDue,
   notepadText, nowKey, persianDate, weekdayName,
@@ -41,10 +41,10 @@ const itemView = (s, t) => ({
 
 function tools(s, env, log) {
   return [
-    betaTool({
+    tool({
       name: 'find_items',
       description: 'Search the dashboard items. With no filters, returns all open tasks. Use it before changing anything, and to answer questions.',
-      inputSchema: {
+      input_schema: {
         type: 'object', additionalProperties: false,
         properties: {
           text: { type: 'string', description: 'Words to look for in the title (any language). Leave empty for all.' },
@@ -68,10 +68,10 @@ function tools(s, env, log) {
         return JSON.stringify(list.map(t => itemView(s, t)));
       },
     }),
-    betaTool({
+    tool({
       name: 'add_items',
       description: 'Add one or more items to the dashboard.',
-      inputSchema: {
+      input_schema: {
         type: 'object', additionalProperties: false, required: ['items'],
         properties: {
           items: {
@@ -95,10 +95,10 @@ function tools(s, env, log) {
         return itemView(s, t);
       })),
     }),
-    betaTool({
+    tool({
       name: 'update_items',
       description: 'Change existing items by id: rename, set or clear the deadline, move to another board, tick off / untick, or delete.',
-      inputSchema: {
+      input_schema: {
         type: 'object', additionalProperties: false, required: ['changes'],
         properties: {
           changes: {
@@ -129,10 +129,10 @@ function tools(s, env, log) {
         return itemView(s, t);
       })),
     }),
-    betaTool({
+    tool({
       name: 'create_board',
       description: 'Create a new board. Only when the user asks for one.',
-      inputSchema: {
+      input_schema: {
         type: 'object', additionalProperties: false, required: ['name'],
         properties: { name: { type: 'string' }, page: { type: 'string', description: 'Page to put it on (a new page is made if no page has this name). Empty → first page.' } },
       },
@@ -143,10 +143,10 @@ function tools(s, env, log) {
         return `Created board "${b.name}" on page "${s.pages.find(p => p.id === b.pageId)?.name}".`;
       },
     }),
-    betaTool({
+    tool({
       name: 'read_notepad',
       description: "Read what the user wrote on their notepad pages (read only).",
-      inputSchema: { type: 'object', additionalProperties: false, properties: { page: { type: 'string', description: 'Page name; empty for all.' } } },
+      input_schema: { type: 'object', additionalProperties: false, properties: { page: { type: 'string', description: 'Page name; empty for all.' } } },
       run: async ({ page }) => {
         const pages = notepadText(s).filter(p => !page || p.page.toLowerCase().includes(page.toLowerCase()));
         return pages.length ? pages.map(p => `# ${p.page}\n${p.text.slice(0, 12000)}`).join('\n\n') : 'No notepad writing found.';
@@ -157,7 +157,7 @@ function tools(s, env, log) {
 
 const validDue = d => (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(d.trim()) ? d.trim() : null);
 
-// What Claude knows about "now" and the dashboard's shape, sent with every message.
+// What the AI knows about "now" and the dashboard's shape, sent with every message.
 function context(s, env) {
   const now = nowKey(env);
   const boards = pageList(s).filter(p => p.kind !== 'doc').map(p => {
@@ -182,41 +182,18 @@ export async function think(env, data, { text, image }) {
   while (history.length && history[0].role !== 'user') history.shift();
   const prompt = `${context(data.s, env)}\n\n${text || '(photo)'}`;
 
-  let reply = env.ANTHROPIC_API_KEY
-    ? await claude(env, data, history, prompt, image, log)
-    : await openaiCompatible(env, data, history, prompt, image, log);
-  reply = reply.replace(/<think>[\s\S]*?<\/think>/g, '').trim() || '✓';
+  const reply = (await chat(env, data, history, prompt, image, log))
+    .replace(/<think>[\s\S]*?<\/think>/g, '').trim() || '✓';
 
   data.bot.chat = [...fresh, { r: 'u', t: text || '(sent a photo)', at: Date.now() }, { r: 'a', t: reply, at: Date.now() }].slice(-12);
   data.bot.lastAdded = log.map(l => l.added).filter(Boolean);
   return reply;
 }
 
-async function claude(env, data, history, prompt, image, log) {
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  const model = env.MODEL || 'claude-opus-5-5';
-  const content = [];
-  if (image) content.push({ type: 'image', source: { type: 'base64', media_type: image.type, data: image.data } });
-  content.push({ type: 'text', text: prompt });
-
-  const runner = client.beta.messages.toolRunner({
-    model,
-    max_tokens: 16000,
-    max_iterations: 10,
-    output_config: { effort: env.EFFORT || 'low' },
-    // If Claude declines a request by mistake, the API retries it on another model.
-    ...(/opus|fable|sonnet-5-5/.test(model) && { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }),
-    system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
-    tools: tools(data.s, env, log),
-    messages: [...history, { role: 'user', content }],
-  });
-  const msg = await runner.runUntilDone();
-  if (msg.stop_reason === 'refusal') return 'Sorry, I can’t help with that one.';
-  return msg.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
-}
-
-// Any OpenAI-compatible chat API with tool calling, e.g. NVIDIA's free endpoint (build.nvidia.com).
-async function openaiCompatible(env, data, history, prompt, image, log) {
+// Works with any OpenAI-compatible chat API that supports tool calling:
+// NVIDIA (default), OpenRouter, Groq, Google Gemini, OpenAI, DeepSeek, Mistral…
+// Change AI_URL and AI_MODEL in wrangler.toml and the AI_API_KEY secret to switch.
+async function chat(env, data, history, prompt, image, log) {
   const url = env.AI_URL || 'https://integrate.api.nvidia.com/v1/chat/completions';
   const model = env.AI_MODEL || 'z-ai/glm-5.3-flash';
   const list = tools(data.s, env, log);
@@ -225,14 +202,17 @@ async function openaiCompatible(env, data, history, prompt, image, log) {
     ? [{ type: 'image_url', image_url: { url: `data:${image.type};base64,${image.data}` } }, { type: 'text', text: prompt }]
     : prompt;
   const messages = [{ role: 'system', content: SYSTEM }, ...history, { role: 'user', content: user }];
+  let extras = { max_tokens: 4096, temperature: 0.3 }; // dropped if a provider doesn't accept them
 
   for (let round = 0; round < 10; round++) {
     const r = await fetch(url, {
       method: 'POST',
       headers: { Authorization: `Bearer ${env.AI_API_KEY}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ model, messages, tools: defs, tool_choice: 'auto', max_tokens: 4096, temperature: 0.3, stream: false }),
+      body: JSON.stringify({ model, messages, tools: defs, tool_choice: 'auto', stream: false, ...extras }),
     });
+    if (r.status === 400 && Object.keys(extras).length) { extras = {}; round--; continue; }
     if (r.status === 401 || r.status === 403) throw new Error('The AI service rejected the key (AI_API_KEY).');
+    if (r.status === 404) throw new Error(`The AI service doesn't know this address or model (AI_URL / AI_MODEL: ${model}).`);
     if (r.status === 429) throw new Error('The AI service is busy (rate limit). Try again in a minute.');
     if (!r.ok) throw new Error(`AI service error ${r.status}: ${(await r.text()).slice(0, 200)}`);
     const msg = (await r.json()).choices?.[0]?.message;
@@ -241,11 +221,11 @@ async function openaiCompatible(env, data, history, prompt, image, log) {
     if (!calls.length) return msg.content || '';
     messages.push({ role: 'assistant', content: msg.content || '', tool_calls: calls });
     for (const c of calls) {
-      const tool = list.find(t => t.name === c.function?.name);
+      const t = list.find(t => t.name === c.function?.name);
       let result;
       try {
         const args = typeof c.function.arguments === 'string' ? JSON.parse(c.function.arguments || '{}') : c.function.arguments || {};
-        result = tool ? await tool.run(args) : `Unknown tool ${c.function?.name}`;
+        result = t ? await t.run(args) : `Unknown tool ${c.function?.name}`;
       } catch (e) { result = `Error: ${e.message}`; }
       messages.push({ role: 'tool', tool_call_id: c.id, content: String(result) });
     }

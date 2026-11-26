@@ -31,7 +31,7 @@
 
 ## راه‌اندازی، قدم به قدم (حدود ۱۵ دقیقه)
 
-برای راه‌اندازی به چهار چیز نیاز داری: ربات تلگرام، توکن گیت‌هاب، کلید Claude و یک حساب رایگان Cloudflare.
+برای راه‌اندازی به چهار چیز نیاز داری: ربات تلگرام، توکن گیت‌هاب، کلید هوش مصنوعی و یک حساب رایگان Cloudflare.
 
 ### قدم ۱: Sync داشبورد را روشن کن
 ربات از همان جایی می‌خواند که داشبورد همگام‌سازی می‌کند. اگر هنوز روشن نیست: در داشبورد ⋯ ← **Sync**.
@@ -45,38 +45,20 @@
 همان توکنی که برای Sync داشبورد ساختی کار می‌کند. یا یک توکن تازه بساز:
 [این لینک](https://github.com/settings/tokens/new?scopes=gist&description=Life%20Telegram%20bot) را باز کن. فقط تیک **gist** را بزن، Expiration را طولانی بگذار و **Generate token** را بزن.
 
-### قدم ۴: مغز ربات، یکی از این دو را انتخاب کن
-
-**راه الف، رایگان (NVIDIA):**
+### قدم ۴: کلید هوش مصنوعی (مغز ربات)
+پیش‌فرض NVIDIA است که رایگان است:
 1. در [build.nvidia.com](https://build.nvidia.com) وارد شو و مدل `z-ai/glm-5.3-flash` را باز کن.
 2. **Generate API Key** را بزن. کلید با `nvapi-` شروع می‌شود. ⚠️ این کلید را به کسی نشان نده و در عکس هم نفرست.
-3. در قدم ۷، به جای `ANTHROPIC_API_KEY` این را بزن و کلید NVIDIA را paste کن:
-
-</div>
-
-```bash
-npx wrangler secret put AI_API_KEY
-```
-
-<div dir="rtl">
 
 > رایگان است، ولی محدودیت تعداد درخواست دارد و NVIDIA آن را برای آزمایش و نمونه‌سازی می‌دهد.
-> در فهمیدن فارسی، کارهای چندمرحله‌ای و خواندن عکس معمولاً از Claude ضعیف‌تر است. اول امتحانش کن، اگر راضی نبودی سراغ راه ب برو.
-> با همین روش می‌توانی هر API سازگار با OpenAI را هم وصل کنی: `AI_URL` و `AI_MODEL` را در `wrangler.toml` عوض کن.
-
-**راه ب، Claude (هوشمندترین؛ هر پیام حدود ۱ تا ۳ سنت):**
-1. به [console.anthropic.com](https://console.anthropic.com) برو و ثبت‌نام کن.
-2. از **Billing** کمی اعتبار بخر (۵ دلار برای مدت زیادی کافی است).
-3. از **API Keys** یک کلید بساز. با `sk-ant-` شروع می‌شود.
-
-> هزینه: هر پیام معمولاً حدود ۱ تا ۳ سنت است. یادآوری‌ها، خلاصه‌ی صبح و شب و دستورهای /today و /list هزینه‌ای ندارند.
-> اگر کلید Claude نگذاری، ربات باز هم کار می‌کند، ولی ساده: هر پیام مستقیم یک کار در Inbox می‌شود.
+> هر وقت خواستی می‌توانی سرویس دیگری بگذاری؛ پایین‌تر، «عوض کردن سرویس هوش مصنوعی» را ببین.
+> اگر کلید نگذاری، ربات باز هم کار می‌کند، ولی ساده: هر پیام مستقیم یک کار در Inbox می‌شود.
 
 ### راه بدون ترمینال (فقط مرورگر، حتی با گوشی)
 به جای قدم‌های ۵ تا ۷ می‌توانی Cloudflare را مستقیم به گیت‌هاب وصل کنی:
 1. در Cloudflare: **Workers & Pages** ← **Create** ← **Import a repository**، حساب گیت‌هاب را وصل کن و مخزن `life` را انتخاب کن.
 2. اسم پروژه را `life-bot` بگذار. در **Advanced settings**، فیلد **Path** (root directory) را `bot` بگذار. Deploy command همان `npx wrangler deploy` بماند. بعد **Deploy** را بزن.
-3. در **Settings** ← **Variables and Secrets** با **Add** این‌ها را از نوع **Secret** اضافه کن: `TELEGRAM_TOKEN`، `GITHUB_TOKEN`، `WEBHOOK_SECRET` و `AI_API_KEY` (یا `ANTHROPIC_API_KEY`).
+3. در **Settings** ← **Variables and Secrets** با **Add** این‌ها را از نوع **Secret** اضافه کن: `TELEGRAM_TOKEN`، `GITHUB_TOKEN`، `WEBHOOK_SECRET` و `AI_API_KEY`.
 4. آدرس ربات (`https://life-bot....workers.dev`) را از صفحه‌ی پروژه بردار و قدم ۸ و ۹ را انجام بده. `CHAT_ID` را هم در همان صفحه‌ی Variables and Secrets اضافه کن.
 
 از این به بعد هر تغییری در گیت‌هاب خودکار روی ربات می‌نشیند. Cloudflare شاخه‌ی اصلی (`main`) را می‌سازد.
@@ -135,13 +117,7 @@ npx wrangler secret put TELEGRAM_TOKEN
 npx wrangler secret put GITHUB_TOKEN
 ```
 
-کلید مغز ربات از قدم ۴. برای Claude:
-
-```bash
-npx wrangler secret put ANTHROPIC_API_KEY
-```
-
-یا برای NVIDIA (فقط یکی از این دو):
+کلید هوش مصنوعی از قدم ۴:
 
 ```bash
 npx wrangler secret put AI_API_KEY
@@ -187,22 +163,39 @@ npx wrangler secret put CHAT_ID
 | `LANG` | `fa` | زبان خلاصه‌ها، یادآوری‌ها و دکمه‌ها (`fa` یا `en`). در گفتگو، ربات به زبانی جواب می‌دهد که تو می‌نویسی. |
 | `MORNING` | `08:00` | ساعت خلاصه‌ی صبح؛ `""` یعنی خاموش |
 | `EVENING` | `21:00` | ساعت مرور شب؛ `""` یعنی خاموش |
-| `MODEL` | `claude-opus-5-5` | مدل Claude. برای ارزان‌تر شدن (ولی کمی کم‌هوش‌تر): `claude-haiku-5-5` |
-| `EFFORT` | `low` | میزان فکر کردن: `low` سریع، `medium` یا `high` دقیق‌تر ولی کندتر و گران‌تر |
-| `AI_URL` / `AI_MODEL` | NVIDIA، `z-ai/glm-5.3-flash` | وقتی به جای Claude کلید `AI_API_KEY` گذاشته باشی |
+| `AI_URL` | NVIDIA | آدرس سرویس هوش مصنوعی |
+| `AI_MODEL` | `z-ai/glm-5.3-flash` | اسم مدل |
+
+## عوض کردن سرویس هوش مصنوعی
+ربات با هر سرویسی کار می‌کند که «سازگار با OpenAI» باشد و از **tool calling** (یا function calling) پشتیبانی کند. برای عوض کردن سرویس:
+1. در `wrangler.toml` دو خط `AI_URL` و `AI_MODEL` را عوض کن.
+2. در Cloudflare، در Variables and Secrets، مقدار `AI_API_KEY` را با کلید سرویس جدید عوض کن.
+
+چند نمونه (اسم دقیق مدل را از سایت همان سرویس بردار):
+
+| سرویس | `AI_URL` |
+|---|---|
+| NVIDIA | `https://integrate.api.nvidia.com/v1/chat/completions` |
+| OpenRouter (صدها مدل با یک کلید) | `https://openrouter.ai/api/v1/chat/completions` |
+| Groq | `https://api.groq.com/openai/v1/chat/completions` |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` |
+| OpenAI | `https://api.openai.com/v1/chat/completions` |
+| DeepSeek | `https://api.deepseek.com/chat/completions` |
+
+برای خواندن عکس، مدل باید ورودی تصویر (image / vision) را هم بپذیرد.
 
 ## اگر کار نکرد
 - **ربات جواب نمی‌دهد:** قدم ۸ را دوباره انجام بده و ببین `"ok":true` می‌آید یا نه.
 - **همه جواب «private bot» می‌گیرند، حتی خودت:** CHAT_ID را درست وارد نکردی. قدم ۹ را تکرار کن.
 - **«Could not find the dashboard data»:** Sync داشبورد روشن نیست (قدم ۱)، یا توکن گیت‌هاب با توکن داشبورد روی یک حساب نیست.
-- **خطای Claude:** کلید یا اعتبار حساب Anthropic را بررسی کن.
-- **«rate limit» با NVIDIA:** سرویس رایگان شلوغ است. یک دقیقه بعد دوباره امتحان کن.
-- اگر هر دو کلید را گذاشته باشی، Claude استفاده می‌شود.
+- **«rejected the key»:** کلید `AI_API_KEY` اشتباه است یا منقضی شده.
+- **«doesn't know this address or model»:** `AI_URL` یا `AI_MODEL` را درست ننوشتی.
+- **«rate limit»:** سرویس رایگان شلوغ است. یک دقیقه بعد دوباره امتحان کن.
 - برای دیدن خطاها به‌صورت زنده: `npx wrangler tail`
 
 ## چطور کار می‌کند (برای کنجکاوها)
 - `worker.js`: تلگرام، دستورها، دکمه‌ها، یادآوری‌ها، خلاصه‌ی صبح و شب (هر ۵ دقیقه بررسی می‌کند)
-- `brain.js`: Claude پیام را می‌فهمد و با چند ابزار ساده (پیدا کردن، افزودن، تغییر، ساختن برد، خواندن یادداشت) داشبورد را تغییر می‌دهد
+- `brain.js`: هوش مصنوعی پیام را می‌فهمد و با چند ابزار ساده (پیدا کردن، افزودن، تغییر، ساختن برد، خواندن یادداشت) داشبورد را تغییر می‌دهد
 - `data.js`: خواندن و نوشتن داده‌ی داشبورد در gist، با همان روش ادغام داشبورد، تا هیچ تغییری از دستگاه دیگر گم نشود. حافظه‌ی ربات در فایل جداگانه‌ی `life-bot.json` در همان gist است.
 
 </div>
