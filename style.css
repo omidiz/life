@@ -654,3 +654,37 @@ body.sizing, body.sizing * { cursor: ew-resize !important; user-select: none; }
 .sheet-menu button { text-align: start; white-space: nowrap; }
 :root.dark .sheet-menu { border-color: #2a2e31; }
 @media (max-width: 640px) { .sheet-menu { position: fixed; top: auto; right: 12px; left: 12px; } }
+
+/* ============ compact top: slim dark date strip + thin toolbar ============ */
+.topbar { margin-bottom: 0; padding-top: calc(8px + env(safe-area-inset-top)); padding-bottom: 8px; }
+header.top {
+  margin: 0 -28px 14px; padding: 6px 28px 7px; background: #181c1f; color: #e6e9ee;
+  border-top: 1px solid #23282c; align-items: center;
+}
+header.top > div:first-child { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 14px; row-gap: 0; min-width: 0; }
+header.top .date { font-size: 15px; font-weight: 600; letter-spacing: 0; color: #fff; line-height: 1.4; }
+header.top .date-fa, header.top .summary { margin: 0; font-size: 13px; color: #9aa0a6; text-align: start; }
+header.top .date-fa::before, header.top .summary::before { content: '·'; margin-inline-end: 14px; color: #5c6268; }
+header.top .clock-time { font-size: 17px; color: #fff; font-weight: 600; }
+.doc-bars { margin-bottom: 10px; }
+.doc-bars .doc-tools, .pen-mode .doc-bars .pen-bar { padding: 2px 8px; border-radius: 10px; min-height: 0; }
+.doc-tools button, .pen-bar button { padding: 4px 8px; font-size: 13px; }
+.doc-tools .sep, .pen-bar .sep { height: 14px; margin: 0 4px; }
+.ink-dot, .ink-size { width: 26px; height: 26px; }
+.ink-dot::before { width: 15px; height: 15px; }
+.sheets { padding-top: 2px; gap: 18px; }
+.sheet .doc-paper { padding-top: 34px; }
+.boards.canvas, .boards { margin-top: 0; }
+:root.dark header.top { background: #15181b; }
+@media (max-width: 640px) {
+  .topbar { padding-top: calc(6px + env(safe-area-inset-top)); padding-bottom: 6px; }
+  header.top { margin: 0 -16px 10px; padding: 5px 16px 6px; }
+  header.top .date { font-size: 13.5px; }
+  header.top .date-fa, header.top .summary { font-size: 12px; }
+  header.top .date-fa::before, header.top .summary::before { margin-inline-end: 8px; }
+  header.top > div:first-child { column-gap: 8px; }
+  header.top .clock-time { font-size: 15px; }
+}
+header.top .date-fa::before { content: none; }
+header.top .date::after { content: '·'; margin-left: 14px; color: #5c6268; font-weight: 400; }
+@media (max-width: 640px) { header.top .date::after { margin-left: 8px; } }
