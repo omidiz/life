@@ -17,7 +17,7 @@ class Storage {
 const storage = new Storage();
 const env = {
   TELEGRAM_TOKEN: 'tok', CHAT_ID: '42', WEBHOOK_SECRET: 'sec', GITHUB_TOKEN: 'gist', GIST_ID: 'g1',
-  AI_API_KEY: 'k', AI_URL: 'https://ai.test/v1', AI_MODEL: 'aa', GITHUB_REPO_TOKEN: 'rt', GITHUB_REPO: 'me/life', TZ: 'Asia/Tehran', LANG: 'fa',
+  AI_API_KEY: 'k', AI_URL: 'https://ai.test/v1', AI_MODEL: 'aa', AI_MODELS: 'bb, cc', AI2_MODEL: 'dd', AI2_URL: 'https://ai2.test/v1', AI2_API_KEY: 'k2', GITHUB_REPO_TOKEN: 'rt', GITHUB_REPO: 'me/life', TZ: 'Asia/Tehran', LANG: 'fa',
 };
 const room = new ChatRoom({ storage }, env); storage.room = room;
 env.ROOM = { idFromName: () => 'x', get: () => ({ fetch: (u, o) => room.fetch(new Request(u, o)) }) };
@@ -52,8 +52,8 @@ globalThis.fetch = async (input, o = {}) => {
     if (p === '/git/refs/heads/main') { repo.head = JSON.parse(o.body).sha; return J({}); }
     if (p.includes('/check-runs')) return J({ check_runs: [{ name: 'Workers Builds', status: 'completed', conclusion: 'success' }] });
   }
-  if (url === 'https://ai.test/v1/chat/completions') {
-    const body = JSON.parse(o.body); aiBodies.push(body);
+  if (url === 'https://ai.test/v1/chat/completions' || url === 'https://ai2.test/v1/chat/completions') {
+    const body = JSON.parse(o.body); aiBodies.push({ ...body, _url: url, _key: o.headers.Authorization });
     if (!body.stream) return J({ choices: [{ message: { role: 'assistant', content: 'ok' } }] });
     let a = ai.shift(); if (typeof a === 'function') a = a(body);
     if (a.status) return new Response(a.body, { status: a.status });
@@ -86,7 +86,7 @@ const mark = () => { sent.length = 0; calls.length = 0; aiBodies.length = 0; };
 
 /* ---------- the checks ---------- */
 mark(); ai.push({ text: 'سلام!' }); await say({ text: 'سلام' });
-check('menu: updated by itself on the first message', sent.some(s => s.m === 'setMyCommands' && s.commands.length === 7));
+check('menu: updated by itself on the first message', sent.some(s => s.m === 'setMyCommands' && s.commands.length === 8));
 mark(); ai.push({ text: 'باز سلام!' }); await say({ text: 'سلام' });
 check('menu: not sent again when unchanged', !sent.some(s => s.m === 'setMyCommands'));
 await say({ text: '/new' });
@@ -174,6 +174,19 @@ check('code: undo restores the file', repo.trees[repo.commits[repo.head].tree]['
 mark(); ai.push({ tools: [['propose_change', { summary: 'x', files: [{ path: 'bot/a.js', content: 'const k = "sk-abcdefghijklmnopqrstuvwxyz0123"' }] }]] }, b => ({ text: JSON.stringify(b.messages.at(-1)).includes('Refused') ? 'رد شد.' : 'نه!' }));
 await say({ text: 'کلید رو بذار تو کد' });
 check('code: keys are never written into files', lastText().includes('رد شد'));
+
+// switching models
+mark(); await say({ text: '/model' });
+const picker = sent.at(-1);
+check('/model lists every model with buttons', picker.reply_markup?.inline_keyboard?.length === 4 && picker.text.includes('aa'), JSON.stringify(picker.reply_markup));
+await press('model:3');
+mark(); ai.push({ text: 'من dd هستم.' }); await say({ text: 'تو کی هستی؟' });
+check('switch: the chosen model on another service is used', aiBodies[0]?.model === 'dd' && aiBodies[0]._url.startsWith('https://ai2.test') && aiBodies[0]._key === 'Bearer k2', JSON.stringify(aiBodies[0] && { m: aiBodies[0].model, u: aiBodies[0]._url }));
+check('switch: the conversation carries on', aiBodies[0]?.messages.some(m => m.role === 'assistant'));
+await say({ text: '/model bb' });
+mark(); ai.push({ text: 'bb.' }); await say({ text: 'و حالا؟' });
+check('switch: /model name works too', aiBodies[0]?.model === 'bb' && aiBodies[0]._url.startsWith('https://ai.test'));
+await press('model:0');
 
 // someone else
 mark();

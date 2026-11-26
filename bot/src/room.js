@@ -48,8 +48,10 @@ export class ChatRoom {
     }
   }
 
+  config = async () => config(this.env, await this.state.get('model'));
+
   async handle(u) {
-    const c = config(this.env), tg = telegram(c);
+    const c = await this.config(), tg = telegram(c);
     await this.keepMenuFresh(c, tg);
     try {
       if (u.message) await this.message(c, tg, u.message);
@@ -99,6 +101,14 @@ export class ChatRoom {
         return tg.send(v.msg, doneButtons(v.tasks));
       }
       case 'status': return tg.send(await this.status(c));
+      case 'model': {
+        if (arg) { await this.state.put('model', { model: arg, url: c.ai.url }); return tg.send(w.modelSet(esc(arg))); }
+        if (c.models.length < 2) return tg.send(w.modelOnlyOne(esc(c.ai.model)));
+        return tg.send(w.modelTitle(esc(c.ai.model)), { reply_markup: { inline_keyboard: c.models.map((m, i) => [{
+          text: `${m.model === c.ai.model && m.url === c.ai.url ? '● ' : ''}${m.model}${new Set(c.models.map(x => x.url)).size > 1 ? '  · ' + new URL(m.url).hostname : ''}`.slice(0, 60),
+          callback_data: `model:${i}`,
+        }]) } });
+      }
     }
 
     // Without an AI key the bot still works as a quick inbox: the message becomes a task.
@@ -134,6 +144,14 @@ export class ChatRoom {
     const [kind, act, id] = (q.data || '').split(':');
     if (kind === 'mem') { await this.state.put('memory', []); await tg.answerButton(q.id); if (q.message) await tg.edit(q.message.message_id, words(c).memoryCleared); return; }
     if (kind === 'dev') return this.devButton(c, tg, q, act, id);
+    if (kind === 'model') {
+      const m = c.models[+act];
+      if (!m) return tg.answerButton(q.id, '?');
+      await this.state.put('model', { model: m.model, url: m.url });
+      await tg.answerButton(q.id, '✓ ' + m.model);
+      if (q.message) await tg.edit(q.message.message_id, words(c).modelSet(esc(m.model)));
+      return;
+    }
     return taskButton(c, tg, q, kind, act); // done:/snooze:/tmr:<task id>
   }
 
@@ -164,7 +182,7 @@ export class ChatRoom {
 
   /* ---------- every 5 minutes ---------- */
   async tick() {
-    const c = config(this.env), tg = telegram(c);
+    const c = await this.config(), tg = telegram(c);
     try { await planTick(c, tg, this.state); } catch (e) { await this.logError('reminders', e); }
     // Tell the user when a change to the bot's code is live (or failed to build).
     const pending = await this.state.get('pendingBuild');
