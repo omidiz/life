@@ -156,6 +156,7 @@ async function onMessage(env, m) {
       `✓ Telegram`,
       `✓ Dashboard: ${live(data.s.pages).length} pages, ${live(data.s.boards).length} boards, ${openTasks(data.s).length} open tasks`,
       ai,
+      data.bot.lastError ? `\nLast problem: <code>${esc(data.bot.lastError)}</code>` : '',
     ].join('\n'));
   }
 

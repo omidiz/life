@@ -88,7 +88,7 @@ function tools(s, env, log) {
           },
         },
       },
-      run: async ({ items }) => JSON.stringify(items.map(i => {
+      run: async ({ items }) => JSON.stringify(list(items).map(i => {
         const b = findBoard(s, i.board) || inbox(s);
         const t = addItem(s, { title: i.title.trim(), boardId: b.id, type: i.type || 'task', due: validDue(i.due) });
         log.push({ added: t.id });
@@ -117,7 +117,7 @@ function tools(s, env, log) {
           },
         },
       },
-      run: async ({ changes }) => JSON.stringify(changes.map(c => {
+      run: async ({ changes }) => JSON.stringify(list(changes).map(c => {
         const t = s.tasks.find(x => x.id === c.id && !x.deleted);
         if (!t) return { id: c.id, error: 'not found' };
         if (c.delete) { t.deleted = true; t.updated = Date.now(); return { id: t.id, title: t.title, deleted: true }; }
@@ -154,6 +154,12 @@ function tools(s, env, log) {
     }),
   ];
 }
+
+// Some models send a list as a JSON string, or one object instead of a list.
+const list = x => {
+  if (typeof x === 'string') { try { x = JSON.parse(x); } catch { return []; } }
+  return Array.isArray(x) ? x : x && typeof x === 'object' ? [x] : [];
+};
 
 const validDue = d => (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(d.trim()) ? d.trim() : null);
 
@@ -223,7 +229,11 @@ async function chat(env, data, history, prompt, image, log) {
       try {
         const args = typeof c.function.arguments === 'string' ? JSON.parse(c.function.arguments || '{}') : c.function.arguments || {};
         result = t ? await t.run(args) : `Unknown tool ${c.function?.name}`;
-      } catch (e) { result = `Error: ${e.message}`; }
+      } catch (e) {
+        result = `Error: ${e.message}. Check the inputs and try again.`;
+        data.bot.lastError = `${c.function?.name}: ${e.message} — input: ${String(c.function?.arguments).slice(0, 300)}`;
+      }
+      console.log('tool', c.function?.name, String(c.function?.arguments).slice(0, 500), '→', String(result).slice(0, 300));
       messages.push({ role: 'tool', tool_call_id: c.id, content: String(result) });
     }
   }
