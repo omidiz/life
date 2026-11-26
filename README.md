@@ -47,7 +47,8 @@ Without sync, data stays on the device. ⋯ → Export / Import works as a manua
 
 ## Telegram bot
 
-A private Telegram bot can add tasks, list what's due, tick tasks off and send a morning brief. It uses the same sync gist.
-Set-up is in [bot/README.md](bot/README.md).
+A private, Claude-powered Telegram bot (Farsi or English): tell it things in plain words and it adds, finds, ticks off and moves tasks,
+reads photos of lists, answers questions about your boards and notes, reminds you on time, and sends a morning brief and evening review.
+It uses the same sync gist. Step-by-step setup (in Farsi) is in [bot/README.md](bot/README.md).
 
 Run locally: `python3 -m http.server` and open http://localhost:8000

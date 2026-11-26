@@ -1,10 +1,16 @@
 name = "life-bot"
 main = "worker.js"
 compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat"]
 
 [vars]
-TZ = "Asia/Tehran"
+TZ = "Asia/Tehran"     # your time zone
+LANG = "fa"            # "fa" or "en": the language of briefs, reminders and buttons (chat follows your language)
+MORNING = "08:00"      # morning brief time; "" to turn it off
+EVENING = "21:00"      # evening review time; "" to turn it off
+MODEL = "claude-opus-5-5"
+EFFORT = "low"         # low = quick answers; medium/high = more careful thinking (slower, costs more)
 
-# Morning brief at 08:00 Tehran time (04:30 UTC). Remove this block to turn it off.
+# Checks for reminders and brief times every 5 minutes.
 [triggers]
-crons = ["30 4 * * *"]
+crons = ["*/5 * * * *"]

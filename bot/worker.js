@@ -1,138 +1,67 @@
-/* Life — personal Telegram bot.
-   Runs as a Cloudflare Worker. It reads and writes the same secret gist the dashboard
-   syncs with, using the same record format (every record has `updated`, deletes are
-   tombstones), so the dashboard merges the bot's changes like another device's.
+/* Life — your personal Telegram bot, connected to your Life dashboard.
+   Runs as a Cloudflare Worker. Talk to it in Farsi or English; it understands, updates the
+   dashboard (through the same gist the dashboard syncs with), reminds you, and briefs you.
 
-   Secrets (wrangler secret put …): TELEGRAM_TOKEN, GITHUB_TOKEN, CHAT_ID, WEBHOOK_SECRET
-   Optional vars: GIST_ID (found automatically if missing), TZ (default Asia/Tehran) */
+   Secrets (npx wrangler secret put …): TELEGRAM_TOKEN, GITHUB_TOKEN, ANTHROPIC_API_KEY, WEBHOOK_SECRET, CHAT_ID
+   Settings in wrangler.toml: TZ, LANG, MORNING, EVENING, MODEL, EFFORT, GIST_ID */
+import { think } from './brain.js';
+import { open, esc, live, isTask, boardList, boardName, openTasks, byDue, dayKey, nowKey, addDays, addMinutes, persianDate, inbox, addItem, findBoard } from './data.js';
 
-const FILE = 'life-dashboard.json';
-const COLORS = ['grey', 'sage', 'clay', 'lilac', 'mist', 'sand', 'stone', 'white'];
-const uid = () => Math.random().toString(36).slice(2, 10);
-const live = arr => (arr || []).filter(x => !x.deleted);
-const isTask = t => (t.type || 'task') === 'task';
-const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+/* ---------- words (Farsi by default, LANG = "en" for English) ---------- */
+const fa = n => n.toLocaleString('fa-IR');
+const T = {
+  fa: {
+    late: 'عقب‌افتاده', today: 'امروز', tomorrow: 'فردا', daysLate: n => `${fa(n)} روز دیر`,
+    morning: 'صبح بخیر ☀️', evening: 'شب بخیر 🌙', nothingToday: 'امروز کاری با مهلت نداری.',
+    dueToday: 'مهلت امروز', doneToday: n => `✓ امروز ${fa(n)} کار انجام دادی`, forTomorrow: 'برای فردا',
+    open: n => `${fa(n)} کار باز داری.`, noOpen: 'هیچ کار بازی نداری 🎉', reminder: '⏰ یادآوری',
+    btnDone: '✓ انجام شد', btn1h: '+۱ ساعت', btnTmr: 'فردا', ticked: '✓ انجام شد', snoozed: 'باشه، بعداً یادت می‌اندازم',
+    moved: 'رفت برای فردا', gone: 'این کار دیگر نیست.', forgot: 'گفتگو از اول شروع شد. 🧹',
+    voice: 'فعلاً پیام صوتی را نمی‌فهمم. لطفاً بنویس، یا عکس بفرست.', error: 'یک مشکل پیش آمد:', tap: 'برای تیک زدن بزن:',
+    added: b => `○ به ${b} اضافه شد:`,
+    help: `<b>Life</b> — دستیار شخصی‌ات، وصل به داشبورد.
 
-/* ---------- dates in the user's time zone ---------- */
-const tzOf = env => env.TZ || 'Asia/Tehran';
-const dayKey = (env, d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: tzOf(env), year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
-const addDays = (key, n) => { const d = new Date(key + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-const weekday = key => new Date(key + 'T12:00:00Z').getUTCDay();
-const FULL = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+هر چیزی بنویس، مثل حرف زدن معمولی:
+• «فردا ساعت ۵ به مامان زنگ بزنم»
+• «شیر، نان و تخم‌مرغ بخرم»
+• «امتحان ریاضی شنبه‌ی بعد، بذار تو درس»
+• «این هفته چی دارم؟»
+• «تمرین فیزیک رو انجام دادم»
+• «دو ساعت دیگه یادم بنداز قرص بخورم»
+• «تو یادداشت‌هام درباره‌ی پروژه چی نوشتم؟»
+• یک عکس از لیست یا برنامه بفرست تا کارهایش اضافه شود.
 
-// Pull "@today", "@tomorrow", "@fri", "@12-05", "@2026-12-05", "@18:00" out of a message.
-function parseDue(text, env) {
-  const today = dayKey(env);
-  let date = null, time = null;
-  const rest = text.replace(/(^|\s)@(\S+)/g, (m, sp, tok) => {
-    const t = tok.toLowerCase();
-    let hit;
-    if (t === 'today') date = today;
-    else if (t === 'tomorrow' || t === 'tmr') date = addDays(today, 1);
-    else if (FULL.some(d => d.startsWith(t) && t.length >= 3)) {
-      const want = FULL.findIndex(d => d.startsWith(t));
-      date = addDays(today, ((want - weekday(today) + 7) % 7) || 7);
-    } else if ((hit = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) date = `${hit[1]}-${hit[2].padStart(2, '0')}-${hit[3].padStart(2, '0')}`;
-    else if ((hit = t.match(/^(\d{1,2})[-/](\d{1,2})$/))) {
-      let d = `${today.slice(0, 4)}-${hit[1].padStart(2, '0')}-${hit[2].padStart(2, '0')}`;
-      if (d < today) d = `${+today.slice(0, 4) + 1}${d.slice(4)}`;
-      date = d;
-    } else if ((hit = t.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)?$/)) && (hit[2] || hit[3])) {
-      let h = +hit[1]; if (hit[3] === 'pm' && h < 12) h += 12; if (hit[3] === 'am' && h === 12) h = 0;
-      time = `${String(h).padStart(2, '0')}:${hit[2] || '00'}`;
-    } else return m;
-    return sp;
-  }).replace(/\s+/g, ' ').trim();
-  if (time && !date) date = today;
-  return { text: rest, due: date ? (time ? `${date}T${time}` : date) : null };
-}
+هر روز صبح خلاصه‌ی روز و شب مرور روز را می‌فرستم. کارهایی که ساعت دارند سر وقت یادآوری می‌شوند.
 
-const dueLabel = (due, env) => {
-  if (!due) return '';
-  const today = dayKey(env), day = due.slice(0, 10), time = due.length > 10 ? ' ' + due.slice(11, 16) : '';
-  const diff = Math.round((new Date(day) - new Date(today)) / 864e5);
-  if (diff < 0) return ` — <b>${-diff} day${diff < -1 ? 's' : ''} late</b>`;
-  if (diff === 0) return ` — due today${time}`;
-  if (diff === 1) return ` — tomorrow${time}`;
-  return ` — ${day}${time}`;
+/today امروز · /list همه‌ی کارها · /new شروع گفتگوی تازه`,
+  },
+  en: {
+    late: 'Late', today: 'today', tomorrow: 'tomorrow', daysLate: n => `${n} day${n > 1 ? 's' : ''} late`,
+    morning: 'Good morning ☀️', evening: 'Good evening 🌙', nothingToday: 'Nothing due today.',
+    dueToday: 'Due today', doneToday: n => `✓ ${n} done today`, forTomorrow: 'For tomorrow',
+    open: n => `${n} open task${n === 1 ? '' : 's'}.`, noOpen: 'No open tasks 🎉', reminder: '⏰ Reminder',
+    btnDone: '✓ Done', btn1h: '+1 hour', btnTmr: 'Tomorrow', ticked: '✓ Done', snoozed: 'OK, I’ll remind you later',
+    moved: 'Moved to tomorrow', gone: 'That task is gone.', forgot: 'Fresh start. 🧹',
+    voice: 'I can’t understand voice messages yet. Please type it, or send a photo.', error: 'Something went wrong:', tap: 'Tap to tick off:',
+    added: b => `○ Added to ${b}:`,
+    help: `<b>Life</b> — your personal assistant, connected to your dashboard.
+
+Just write, like talking to a person:
+• "Call mom tomorrow at 5"
+• "Buy milk, bread and eggs"
+• "Math exam next Saturday, put it in Study"
+• "What do I have this week?"
+• "I finished the physics homework"
+• "Remind me to take my pills in 2 hours"
+• "What did I write in my notes about the project?"
+• Send a photo of a list or a schedule and I'll add its tasks.
+
+Every morning I send your day, every evening a short review. Tasks with a time get a reminder on time.
+
+/today today · /list all tasks · /new fresh conversation`,
+  },
 };
-
-/* ---------- GitHub gist (the dashboard's sync file) ---------- */
-async function gh(env, path, opts = {}) {
-  const r = await fetch('https://api.github.com' + path, {
-    ...opts,
-    headers: { Authorization: `Bearer ${env.GITHUB_TOKEN}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json', 'User-Agent': 'life-telegram-bot' },
-  });
-  if (!r.ok) throw new Error(`GitHub ${r.status}`);
-  return r.json();
-}
-async function gistId(env) {
-  if (env.GIST_ID) return env.GIST_ID;
-  for (let page = 1; page <= 10; page++) {
-    const list = await gh(env, `/gists?per_page=100&page=${page}`);
-    const g = list.find(g => g.files?.[FILE]);
-    if (g) return (env.GIST_ID = g.id);
-    if (list.length < 100) break;
-  }
-  throw new Error('No life-dashboard.json gist found. Turn on Sync in the dashboard first (⋯ → Sync).');
-}
-async function load(env) {
-  const g = await gh(env, `/gists/${await gistId(env)}`);
-  const f = g.files[FILE];
-  const text = f.truncated ? await fetch(f.raw_url).then(r => r.text()) : f.content;
-  const s = JSON.parse(text || '{}');
-  for (const k of ['pages', 'boards', 'tasks']) s[k] ||= [];
-  return s;
-}
-// Re-read right before writing and keep the newest version of each record, so an edit
-// made on another device a moment ago isn't lost.
-async function save(env, mine) {
-  const remote = await load(env);
-  const out = { ...remote, ...mine };
-  for (const k of ['pages', 'boards', 'tasks', 'notes', 'sessions', 'habits']) {
-    if (!Array.isArray(remote[k]) && !Array.isArray(mine[k])) continue;
-    const m = new Map((remote[k] || []).map(x => [x.id, x]));
-    for (const x of mine[k] || []) { const o = m.get(x.id); if (!o || (x.updated || 0) > (o.updated || 0)) m.set(x.id, x); }
-    out[k] = [...m.values()];
-  }
-  await gh(env, `/gists/${await gistId(env)}`, { method: 'PATCH', body: JSON.stringify({ files: { [FILE]: { content: JSON.stringify(out) } } }) });
-}
-
-/* ---------- reading and changing the data ---------- */
-const boardList = s => live(s.boards).sort((a, b) => {
-  const pa = s.pages.find(p => p.id === a.pageId)?.order ?? 0, pb = s.pages.find(p => p.id === b.pageId)?.order ?? 0;
-  return pa - pb || a.order - b.order;
-});
-const findBoard = (s, name) => {
-  const n = name.toLowerCase().replace(/[-_]/g, ' ');
-  const list = boardList(s).map(b => [b, b.name.toLowerCase()]);
-  return (list.find(([, x]) => x === n) || list.find(([, x]) => x.startsWith(n)) || list.find(([, x]) => x.includes(n)))?.[0];
-};
-// Messages without a #board go to an "Inbox" board, made on the first page the first time.
-function inbox(s) {
-  let b = s.boards.find(b => b.id === 'b-inbox');
-  if (b && !b.deleted) return b;
-  const first = live(s.pages).sort((a, b) => a.order - b.order)[0]?.id || 'p-home';
-  const order = Math.min(0, ...live(s.boards).map(x => x.order)) - 1;
-  if (b) Object.assign(b, { deleted: false, pageId: first, updated: Date.now() });
-  else s.boards.push(b = { id: 'b-inbox', name: 'Inbox', pageId: first, order, color: COLORS[0], updated: Date.now() });
-  return b;
-}
-const openTasks = (s, boardId) => live(s.tasks).filter(t => isTask(t) && !t.done && t.title && (!boardId || t.boardId === boardId));
-const byDue = (a, b) => (a.due || '9999').localeCompare(b.due || '9999') || a.pos - b.pos;
-
-function addItem(s, env, raw, type = 'task') {
-  let text = raw.trim(), board;
-  const tag = text.match(/(^|\s)#([^\s#]+)/);
-  if (tag) { board = findBoard(s, tag[2]); if (board) text = text.replace(tag[0], ' ').trim(); }
-  board ||= inbox(s);
-  const { text: title, due } = type === 'task' ? parseDue(text, env) : { text, due: null };
-  if (!title) return null;
-  const pos = Math.max(-1, ...s.tasks.filter(t => t.boardId === board.id).map(t => t.pos ?? 0)) + 1;
-  const t = { id: uid(), boardId: board.id, type, title, due, done: false, doneOn: null, pos, created: Date.now(), updated: Date.now() };
-  s.tasks.push(t);
-  return { t, board };
-}
+const L = env => T[env.LANG === 'en' ? 'en' : 'fa'];
 
 /* ---------- Telegram ---------- */
 async function tg(env, method, body) {
@@ -141,114 +70,159 @@ async function tg(env, method, body) {
   });
   return r.json();
 }
-const send = (env, text, extra = {}) => tg(env, 'sendMessage', { chat_id: env.CHAT_ID, text, parse_mode: 'HTML', disable_web_page_preview: true, ...extra });
-const doneButtons = tasks => ({ inline_keyboard: tasks.slice(0, 30).map(t => [{ text: '✓ ' + t.title.slice(0, 40), callback_data: 'done:' + t.id }]) });
-const lines = (s, env, tasks, showBoard = true) => tasks.map(t => {
-  const b = showBoard ? s.boards.find(b => b.id === t.boardId)?.name : '';
-  return `○ ${esc(t.title)}${dueLabel(t.due, env)}${b ? `  <i>${esc(b)}</i>` : ''}`;
-}).join('\n');
+async function send(env, text, extra = {}) {
+  const body = { chat_id: env.CHAT_ID, text: text.slice(0, 4000), parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...extra };
+  const r = await tg(env, 'sendMessage', body);
+  if (!r.ok) { // bad HTML from the model: send it as plain text instead
+    delete body.parse_mode; body.text = text.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').slice(0, 4000);
+    return tg(env, 'sendMessage', body);
+  }
+  return r;
+}
+const doneButtons = (tasks, env) => tasks.length ? { reply_markup: { inline_keyboard: tasks.slice(0, 20).map(t => [{ text: '✓ ' + t.title.slice(0, 40), callback_data: 'done:' + t.id }]) } } : {};
 
-const HELP = `<b>Life bot</b> — your dashboard in Telegram.
+/* ---------- lists ---------- */
+function dueLabel(due, env) {
+  if (!due) return '';
+  const w = L(env), today = dayKey(env), time = due.length > 10 ? ' ' + due.slice(11, 16) : '';
+  const diff = Math.round((new Date(due.slice(0, 10)) - new Date(today)) / 864e5);
+  if (diff < 0) return ` — <b>${w.daysLate(-diff)}</b>`;
+  if (diff === 0) return ` — ${w.today}${time}`;
+  if (diff === 1) return ` — ${w.tomorrow}${time}`;
+  return ` — ${due.slice(0, 10)}${time}`;
+}
+const lines = (s, env, tasks, showBoard = true) => tasks.map(t => `○ ${esc(t.title)}${dueLabel(t.due, env)}${showBoard ? `  <i>${esc(boardName(s, t.boardId))}</i>` : ''}`).join('\n');
 
-Just send a message and it becomes a task in <b>Inbox</b>.
-<code>Call mom #personal @tomorrow</code> — task on the Personal board, due tomorrow
-<code>Essay #study @fri @18:00</code> — due Friday at 18:00
-Dates: @today @tomorrow @mon…@sun @12-05 @2026-12-05, times: @9am @18:30
-
-/today — overdue and due today
-/week — due in the next 7 days
-/list — all open tasks (or <code>/list work</code> for one board)
-/boards — your boards
-/note text — add a note line (use #board too)
-/done — tick tasks off with buttons
-/undo — remove the last thing you added`;
-
-function brief(s, env) {
-  const today = dayKey(env), open = openTasks(s);
+function todayView(s, env, greeting = '') {
+  const w = L(env), today = dayKey(env), open = openTasks(s);
   const late = open.filter(t => t.due && t.due.slice(0, 10) < today).sort(byDue);
   const due = open.filter(t => t.due && t.due.slice(0, 10) === today).sort(byDue);
-  const doneToday = live(s.tasks).filter(t => t.doneOn === today).length;
-  let msg = `<b>Today, ${today}</b>\n`;
-  if (late.length) msg += `\n<b>Late</b>\n${lines(s, env, late)}\n`;
-  if (due.length) msg += `\n<b>Due today</b>\n${lines(s, env, due)}\n`;
-  if (!late.length && !due.length) msg += `\nNothing due today. ${open.length} open task${open.length === 1 ? '' : 's'} in total.`;
-  if (doneToday) msg += `\n✓ ${doneToday} done today`;
+  const doneN = live(s.tasks).filter(t => t.doneOn === today).length;
+  let msg = `${greeting ? greeting + '\n' : ''}<b>${persianDate(env)}</b>  ·  ${today}\n`;
+  if (late.length) msg += `\n<b>${w.late}</b>\n${lines(s, env, late)}\n`;
+  if (due.length) msg += `\n<b>${w.dueToday}</b>\n${lines(s, env, due)}\n`;
+  if (!late.length && !due.length) msg += `\n${w.nothingToday} ${w.open(open.length)}`;
+  if (doneN) msg += `\n${w.doneToday(doneN)}`;
   return { msg, tasks: [...late, ...due] };
+}
+function eveningView(s, env) {
+  const w = L(env), today = dayKey(env), tmr = addDays(today, 1);
+  const done = live(s.tasks).filter(t => isTask(t) && t.doneOn === today);
+  const next = openTasks(s).filter(t => t.due && t.due.slice(0, 10) <= tmr).sort(byDue);
+  if (!done.length && !next.length) return null;
+  let msg = `${w.evening}\n`;
+  if (done.length) msg += `\n${w.doneToday(done.length)}\n${done.map(t => `<s>${esc(t.title)}</s>`).join('\n')}\n`;
+  if (next.length) msg += `\n<b>${w.forTomorrow}</b>\n${lines(s, env, next)}`;
+  return { msg, tasks: next };
+}
+function listView(s, env) {
+  const open = openTasks(s).sort(byDue);
+  if (!open.length) return { msg: L(env).noOpen, tasks: [] };
+  const msg = boardList(s).map(b => [b, open.filter(t => t.boardId === b.id)]).filter(([, l]) => l.length)
+    .map(([b, l]) => `<b>${esc(b.name)}</b>\n${lines(s, env, l, false)}`).join('\n\n');
+  return { msg: msg + `\n\n${L(env).tap}`, tasks: open };
+}
+
+/* ---------- messages ---------- */
+async function photoOf(env, m) {
+  const fileId = m.photo?.at(-1)?.file_id || (m.document?.mime_type?.startsWith('image/') && m.document.file_id);
+  if (!fileId) return null;
+  const f = await tg(env, 'getFile', { file_id: fileId });
+  const buf = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_TOKEN}/${f.result.file_path}`).then(r => r.arrayBuffer());
+  let bin = ''; const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  const ext = f.result.file_path.split('.').pop().toLowerCase();
+  const type = m.document?.mime_type || ({ png: 'image/png', webp: 'image/webp', gif: 'image/gif' }[ext] || 'image/jpeg');
+  return { type, data: btoa(bin) };
 }
 
 async function onMessage(env, m) {
+  const w = L(env);
+  if (m.voice || m.audio || m.video_note) return send(env, w.voice);
   const text = (m.text || m.caption || '').trim();
-  if (!text) return send(env, 'Send me text and I will put it on your dashboard.');
-  const [cmd0, ...restParts] = text.split(/\s+/);
-  const cmd = cmd0.startsWith('/') ? cmd0.slice(1).split('@')[0].toLowerCase() : null;
-  const arg = restParts.join(' ').trim();
+  const cmd = text.startsWith('/') ? text.slice(1).split(/[\s@]/)[0].toLowerCase() : null;
+  if (cmd === 'start' || cmd === 'help') return send(env, w.help);
 
-  if (cmd === 'start' || cmd === 'help') return send(env, HELP);
-  const s = await load(env);
+  const data = await open(env);
+  if (cmd === 'today') { const v = todayView(data.s, env); return send(env, v.msg, doneButtons(v.tasks, env)); }
+  if (cmd === 'list') { const v = listView(data.s, env); return send(env, v.msg, doneButtons(v.tasks, env)); }
+  if (cmd === 'new') { data.bot.chat = []; await data.save(); return send(env, w.forgot); }
 
-  if (cmd === 'today') { const { msg, tasks } = brief(s, env); return send(env, msg, tasks.length ? { reply_markup: doneButtons(tasks) } : {}); }
-  if (cmd === 'week') {
-    const today = dayKey(env), end = addDays(today, 7);
-    const list = openTasks(s).filter(t => t.due && t.due.slice(0, 10) <= end).sort(byDue);
-    return send(env, list.length ? `<b>Next 7 days</b>\n${lines(s, env, list)}` : 'Nothing due in the next 7 days.', list.length ? { reply_markup: doneButtons(list) } : {});
+  // Without a Claude key the bot still works as a quick inbox: the message becomes a task.
+  if (!env.ANTHROPIC_API_KEY) {
+    if (!text) return;
+    const tag = text.match(/(^|\s)#(\S+)/), b = (tag && findBoard(data.s, tag[2])) || inbox(data.s);
+    const t = addItem(data.s, { title: tag ? text.replace(tag[0], ' ').trim() : text, boardId: b.id });
+    await data.save();
+    return send(env, `${w.added(esc(b.name))} ${esc(t.title)}`);
   }
-  if (cmd === 'list' || cmd === 'done') {
-    const board = arg ? findBoard(s, arg) : null;
-    if (arg && !board) return send(env, `No board called “${esc(arg)}”. /boards lists them.`);
-    const list = openTasks(s, board?.id).sort(byDue);
-    if (!list.length) return send(env, board ? `Nothing open on ${esc(board.name)}.` : 'No open tasks. 🎉');
-    let msg;
-    if (board) msg = `<b>${esc(board.name)}</b>\n${lines(s, env, list, false)}`;
-    else msg = boardList(s).map(b => [b, list.filter(t => t.boardId === b.id)]).filter(([, l]) => l.length)
-      .map(([b, l]) => `<b>${esc(b.name)}</b>\n${lines(s, env, l, false)}`).join('\n\n');
-    return send(env, msg + (cmd === 'done' || list.length <= 30 ? '\n\nTap to tick off:' : ''), { reply_markup: doneButtons(list) });
-  }
-  if (cmd === 'boards') {
-    const pages = live(s.pages).sort((a, b) => a.order - b.order);
-    const msg = pages.map(p => {
-      const bs = boardList(s).filter(b => b.pageId === p.id);
-      return bs.length ? `<b>${esc(p.name)}</b>\n` + bs.map(b => `• ${esc(b.name)} (${openTasks(s, b.id).length})  <code>#${esc(b.name.toLowerCase().replace(/\s+/g, '-'))}</code>`).join('\n') : '';
-    }).filter(Boolean).join('\n\n');
-    return send(env, msg || 'No boards yet.');
-  }
-  if (cmd === 'undo') {
-    const last = live(s.tasks).filter(t => t.viaBot).sort((a, b) => b.created - a.created)[0];
-    if (!last || Date.now() - last.created > 864e5) return send(env, 'Nothing to undo.');
-    last.deleted = true; last.updated = Date.now(); await save(env, s);
-    return send(env, `Removed “${esc(last.title)}”.`);
-  }
-  if (cmd && cmd !== 'note' && cmd !== 'add') return send(env, 'I don’t know that command. /help');
 
-  const r = addItem(s, env, cmd ? arg : text, cmd === 'note' ? 'note' : 'task');
-  if (!r) return send(env, cmd === 'note' ? 'Write the note after /note.' : 'Write the task after /add.');
-  r.t.viaBot = true;
-  await save(env, s);
-  return send(env, `${r.t.type === 'note' ? '✎ Note' : '○ Task'} added to <b>${esc(r.board.name)}</b>: ${esc(r.t.title)}${dueLabel(r.t.due, env)}`);
+  tg(env, 'sendChatAction', { chat_id: env.CHAT_ID, action: 'typing' });
+  const image = await photoOf(env, m);
+  if (!text && !image) return;
+  const reply = await think(env, data, { text: [m.reply_to_message?.text && `(replying to: "${m.reply_to_message.text.slice(0, 500)}")`, text].filter(Boolean).join('\n'), image });
+  await data.save();
+  return send(env, reply);
 }
 
-async function onCallback(env, q) {
-  const [act, id] = (q.data || '').split(':');
-  if (act !== 'done') return tg(env, 'answerCallbackQuery', { callback_query_id: q.id });
-  const s = await load(env), t = s.tasks.find(t => t.id === id);
-  if (!t || t.deleted) return tg(env, 'answerCallbackQuery', { callback_query_id: q.id, text: 'That task is gone.' });
-  if (!t.done) { t.done = true; t.doneOn = dayKey(env); t.updated = Date.now(); await save(env, s); }
-  await tg(env, 'answerCallbackQuery', { callback_query_id: q.id, text: '✓ ' + t.title.slice(0, 180) });
-  // Drop the ticked task's button from the message.
-  const kb = q.message?.reply_markup?.inline_keyboard?.filter(row => row[0]?.callback_data !== q.data);
-  if (q.message) await tg(env, 'editMessageReplyMarkup', { chat_id: q.message.chat.id, message_id: q.message.message_id, reply_markup: { inline_keyboard: kb || [] } });
+async function onButton(env, q) {
+  const w = L(env), [act, id] = (q.data || '').split(':');
+  const data = await open(env), t = data.s.tasks.find(t => t.id === id && !t.deleted);
+  const answer = text => tg(env, 'answerCallbackQuery', { callback_query_id: q.id, text });
+  if (!t) return answer(w.gone);
+  let note;
+  if (act === 'done') { t.done = true; t.doneOn = dayKey(env); note = `${w.ticked}: ${t.title}`; }
+  if (act === 'snooze') { t.due = addMinutes(nowKey(env), 60); note = w.snoozed; }
+  if (act === 'tmr') { t.due = addDays(dayKey(env), 1) + (t.due?.length > 10 ? t.due.slice(10) : ''); note = w.moved; }
+  t.updated = Date.now();
+  await data.save();
+  await answer(note.slice(0, 190));
+  // Take the button away so the message shows what's left.
+  const kb = (q.message?.reply_markup?.inline_keyboard || []).filter(row => !row.some(b => b.callback_data?.endsWith(':' + id)));
+  if (q.message) await tg(env, 'editMessageReplyMarkup', { chat_id: q.message.chat.id, message_id: q.message.message_id, reply_markup: { inline_keyboard: kb } });
+}
+
+/* ---------- every 5 minutes: reminders, morning brief, evening review ---------- */
+async function tick(env) {
+  const w = L(env), data = await open(env), { s, bot } = data;
+  const now = nowKey(env), today = now.slice(0, 10), hm = now.slice(11);
+
+  // Reminders: tasks with a time that has just come (within the last 2 hours, once per deadline).
+  for (const t of openTasks(s)) {
+    if (!t.due || t.due.length <= 10 || t.due > now || t.due < addMinutes(now, -120) || bot.reminded[t.id] === t.due) continue;
+    bot.reminded[t.id] = t.due;
+    await send(env, `${w.reminder}\n<b>${esc(t.title)}</b>  <i>${esc(boardName(s, t.boardId))}</i>`, { reply_markup: { inline_keyboard: [[
+      { text: w.btnDone, callback_data: 'done:' + t.id }, { text: w.btn1h, callback_data: 'snooze:' + t.id }, { text: w.btnTmr, callback_data: 'tmr:' + t.id },
+    ]] } });
+  }
+  for (const id of Object.keys(bot.reminded)) if (!s.tasks.some(t => t.id === id && !t.deleted && !t.done)) delete bot.reminded[id];
+
+  const morning = env.MORNING ?? '08:00', evening = env.EVENING ?? '21:00';
+  if (morning && hm >= morning && bot.morningOn !== today) {
+    bot.morningOn = today;
+    const v = todayView(s, env, w.morning); await send(env, v.msg, doneButtons(v.tasks, env));
+  }
+  if (evening && hm >= evening && bot.eveningOn !== today) {
+    bot.eveningOn = today;
+    const v = eveningView(s, env); if (v) await send(env, v.msg, doneButtons(v.tasks, env));
+  }
+  await data.save();
 }
 
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
-    // One-time setup: open https://<worker>/setup?secret=<WEBHOOK_SECRET> in a browser.
+    // One-time setup: open https://<your-worker>/setup?secret=<WEBHOOK_SECRET> in a browser.
     if (url.pathname === '/setup') {
-      if (url.searchParams.get('secret') !== env.WEBHOOK_SECRET) return new Response('Wrong secret', { status: 403 });
-      const hook = await tg(env, 'setWebhook', { url: `${url.origin}/telegram`, secret_token: env.WEBHOOK_SECRET, allowed_updates: ['message', 'callback_query'] });
+      if (!env.WEBHOOK_SECRET || url.searchParams.get('secret') !== env.WEBHOOK_SECRET) return new Response('Wrong secret', { status: 403 });
+      const hook = await tg(env, 'setWebhook', { url: `${url.origin}/telegram`, secret_token: env.WEBHOOK_SECRET, allowed_updates: ['message', 'callback_query'], drop_pending_updates: true });
+      const isFa = env.LANG !== 'en';
       await tg(env, 'setMyCommands', { commands: [
-        ['today', 'Overdue and due today'], ['week', 'Due in the next 7 days'], ['list', 'All open tasks'], ['done', 'Tick tasks off'],
-        ['boards', 'Your boards'], ['note', 'Add a note'], ['undo', 'Remove the last thing added'], ['help', 'How to use the bot'],
-      ].map(([command, description]) => ({ command, description })) });
+        { command: 'today', description: isFa ? 'کارهای امروز' : 'Today' },
+        { command: 'list', description: isFa ? 'همه‌ی کارهای باز' : 'All open tasks' },
+        { command: 'new', description: isFa ? 'شروع گفتگوی تازه' : 'Fresh conversation' },
+        { command: 'help', description: isFa ? 'راهنما' : 'Help' },
+      ] });
       return Response.json(hook);
     }
     if (url.pathname !== '/telegram' || req.method !== 'POST') return new Response('Life bot is running.');
@@ -256,26 +230,19 @@ export default {
 
     const u = await req.json();
     const chat = u.message?.chat?.id ?? u.callback_query?.message?.chat?.id;
-    // Personal bot: anyone else gets their chat id (handy for first setup) and nothing more.
-    if (String(chat) !== String(env.CHAT_ID)) {
-      if (u.message) await tg(env, 'sendMessage', { chat_id: chat, text: `This is a private bot. Your chat id is ${chat}.` });
+    // Personal bot: anyone else only learns their chat id (handy for setup).
+    if (!env.CHAT_ID || String(chat) !== String(env.CHAT_ID)) {
+      if (u.message) await tg(env, 'sendMessage', { chat_id: chat, text: `This is a private bot. Your chat id is ${chat}` });
       return new Response('ok');
     }
     try {
       if (u.message) await onMessage(env, u.message);
-      else if (u.callback_query) await onCallback(env, u.callback_query);
+      else if (u.callback_query) await onButton(env, u.callback_query);
     } catch (e) {
-      await send(env, '⚠️ ' + esc(e.message || String(e)));
+      console.error(e);
+      await send(env, `⚠️ ${L(env).error} ${esc(e.message || String(e))}`);
     }
     return new Response('ok');
   },
-
-  // Morning brief (time set in wrangler.toml).
-  async scheduled(_event, env) {
-    const s = await load(env);
-    const { msg, tasks } = brief(s, env);
-    await send(env, 'Good morning ☀️\n\n' + msg, tasks.length ? { reply_markup: doneButtons(tasks) } : {});
-  },
+  async scheduled(_event, env, ctx) { ctx.waitUntil(tick(env)); },
 };
-
-export { parseDue, addItem, brief, dayKey };

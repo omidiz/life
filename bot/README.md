@@ -1,68 +1,171 @@
-# Life bot — your dashboard in Telegram
+<div dir="rtl">
 
-A private Telegram bot connected to your Life dashboard. Send it a message and the task appears on your boards on every device.
-It reads and writes the same secret gist that dashboard **Sync** uses, so turn on Sync first (⋯ → Sync).
+# ربات Life، دستیار شخصی تو در تلگرام
 
-## What it does
+یک ربات خصوصی که به داشبورد Life وصل است. با آن مثل یک آدم حرف می‌زنی، فارسی یا انگلیسی. ربات می‌فهمد چه می‌خواهی، داشبوردت را به‌روز می‌کند و سر وقت یادت می‌اندازد.
+هر تغییری که می‌دهد روی همه‌ی دستگاه‌هایت در داشبورد هم دیده می‌شود.
 
-- **Any message becomes a task** in an **Inbox** board (created on your first page the first time).
-- `#board` puts it on a board: `Call mom #personal`. Names can be shortened (`#pers`).
-- `@date` / `@time` set a deadline: `@today`, `@tomorrow`, `@mon`…`@sun`, `@12-05`, `@2026-12-05`, `@9am`, `@18:30`.
-  Example: `Essay #study @fri @18:00`
-- `/today`: what's late and what's due today. `/week`: the next 7 days.
-- `/list` shows all open tasks by board (`/list work` shows one board), with **✓ buttons to tick tasks off**.
-- `/boards`, `/note text` (adds a note line, `#board` works too), `/undo` (removes the last thing you added).
-- **Morning brief** every day at 08:00 Tehran time, with ✓ buttons.
-- Only you can use it. Anyone else who messages it just gets a "private bot" reply.
+## چه کارهایی می‌کند
 
-## Set it up (about 10 minutes, free)
+| بنویس… | ربات… |
+|---|---|
+| «فردا ساعت ۵ به مامان زنگ بزنم» | یک کار با مهلت فردا ساعت ۱۷:۰۰ می‌سازد و سر وقت یادآوری می‌کند |
+| «شیر، نان و تخم‌مرغ بخرم» | سه کار جدا، روی برد مناسب |
+| «امتحان ریاضی شنبه‌ی بعد، بذار تو درس» | کار را با تاریخ درست روی برد Study می‌گذارد |
+| «این هفته چی دارم؟» | فهرست کارهای این هفته |
+| «تمرین فیزیک رو انجام دادم» | آن کار را پیدا می‌کند و تیک می‌زند |
+| «دو ساعت دیگه یادم بنداز قرص بخورم» | دو ساعت بعد پیام یادآوری می‌دهد |
+| «جلسه رو ببر پس‌فردا» / «اون کار خرید رو پاک کن» | کار را جابه‌جا یا پاک می‌کند |
+| «یه برد جدید به اسم ورزش بساز» | برد جدید می‌سازد |
+| «تو یادداشت‌هام درباره‌ی پروژه چی نوشتم؟» | صفحه‌های Notepad را می‌خواند و جواب می‌دهد |
+| یک **عکس** از لیست دست‌نویس، تخته یا برنامه‌ی کلاس | کارهای داخل عکس را اضافه می‌کند |
 
-It runs on Cloudflare Workers (the free plan is plenty), so it's always on without a server.
+و خودش:
+- **هر صبح ساعت ۸** خلاصه‌ی روز را می‌فرستد: کارهای عقب‌افتاده و کارهای امروز، با تاریخ شمسی و میلادی.
+- **هر شب ساعت ۹** مرور روز را می‌فرستد: کارهایی که انجام دادی و کارهای فردا.
+- برای **کارهایی که ساعت دارند** سر وقت یادآوری می‌فرستد، با سه دکمه: ✓ انجام شد، +۱ ساعت، فردا.
+- گفتگو را به خاطر دارد، پس می‌توانی بگویی «اونو بذار برای ساعت ۶». با /new گفتگو از اول شروع می‌شود.
+- **فقط تو** می‌توانی از آن استفاده کنی. اگر کس دیگری پیام بدهد، فقط جواب «ربات خصوصی است» می‌گیرد.
 
-1. **Make the bot.** In Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot`, pick a name. Copy the **token** it gives you.
-2. **GitHub token.** Use a token with only the `gist` permission (the one from dashboard Sync works, or
-   [create one](https://github.com/settings/tokens/new?scopes=gist&description=Life%20Telegram%20bot)).
-3. **Deploy.** Install [Node.js](https://nodejs.org), then in this `bot` folder:
+دستورهای سریع: ‎/today کارهای امروز · ‎/list همه‌ی کارها با دکمه‌ی تیک · ‎/new گفتگوی تازه · ‎/help راهنما
+
+## راه‌اندازی، قدم به قدم (حدود ۱۵ دقیقه)
+
+برای راه‌اندازی به چهار چیز نیاز داری: ربات تلگرام، توکن گیت‌هاب، کلید Claude و یک حساب رایگان Cloudflare.
+
+### قدم ۱: Sync داشبورد را روشن کن
+ربات از همان جایی می‌خواند که داشبورد همگام‌سازی می‌کند. اگر هنوز روشن نیست: در داشبورد ⋯ ← **Sync**.
+
+### قدم ۲: ربات تلگرام بساز
+1. در تلگرام به [@BotFather](https://t.me/BotFather) پیام بده.
+2. بنویس ‎`/newbot`، یک اسم بده (مثلاً Life) و یک نام کاربری که به `bot` ختم شود.
+3. یک **توکن** می‌دهد، چیزی شبیه `123456:ABC-...`. آن را جایی نگه دار.
+
+### قدم ۳: توکن گیت‌هاب
+همان توکنی که برای Sync داشبورد ساختی کار می‌کند. یا یک توکن تازه بساز:
+[این لینک](https://github.com/settings/tokens/new?scopes=gist&description=Life%20Telegram%20bot) را باز کن. فقط تیک **gist** را بزن، Expiration را طولانی بگذار و **Generate token** را بزن.
+
+### قدم ۴: کلید Claude (مغز ربات)
+1. به [console.anthropic.com](https://console.anthropic.com) برو و ثبت‌نام کن.
+2. از **Billing** کمی اعتبار بخر (۵ دلار برای مدت زیادی کافی است).
+3. از **API Keys** یک کلید بساز. با `sk-ant-` شروع می‌شود.
+
+> هزینه: هر پیام معمولاً حدود ۱ تا ۳ سنت است. یادآوری‌ها، خلاصه‌ی صبح و شب و دستورهای /today و /list هزینه‌ای ندارند.
+> اگر کلید Claude نگذاری، ربات باز هم کار می‌کند، ولی ساده: هر پیام مستقیم یک کار در Inbox می‌شود.
+
+### قدم ۵: آماده کردن کامپیوتر
+1. [Node.js](https://nodejs.org) را نصب کن (نسخه‌ی LTS).
+2. پروژه را از گیت‌هاب دانلود کن و ترمینال را در پوشه‌ی `bot` باز کن.
+3. این دستور را بزن:
+
+</div>
+
+```bash
+npm install
+```
+
+<div dir="rtl">
+
+### قدم ۶: گذاشتن ربات روی Cloudflare (رایگان)
+1. در [dash.cloudflare.com](https://dash.cloudflare.com/sign-up) یک حساب رایگان بساز.
+2. وارد شو. مرورگر باز می‌شود و Allow را بزن:
+
+</div>
 
 ```bash
 npx wrangler login
 ```
 
+<div dir="rtl">
+
+3. ربات را بفرست روی اینترنت:
+
+</div>
+
 ```bash
 npx wrangler deploy
 ```
 
-   It prints your bot's address, like `https://life-bot.<you>.workers.dev`.
+<div dir="rtl">
 
-4. **Add the secrets.** Each command asks for the value:
+در آخر یک آدرس نشان می‌دهد، مثل `https://life-bot.اسم‌تو.workers.dev`. آن را نگه دار.
+
+### قدم ۷: رمزها را بده
+هر دستور مقدارش را می‌پرسد. آن را paste کن و Enter بزن.
+
+</div>
+
+توکن تلگرام از قدم ۲:
 
 ```bash
 npx wrangler secret put TELEGRAM_TOKEN
 ```
 
+توکن گیت‌هاب از قدم ۳:
+
 ```bash
 npx wrangler secret put GITHUB_TOKEN
 ```
+
+کلید Claude از قدم ۴:
+
+```bash
+npx wrangler secret put ANTHROPIC_API_KEY
+```
+
+یک رمز دلخواه و طولانی که خودت می‌سازی، فقط با حروف انگلیسی، عدد، `-` و `_` (مثلاً `my-life-bot-2026-secret`):
 
 ```bash
 npx wrangler secret put WEBHOOK_SECRET
 ```
 
-   For `WEBHOOK_SECRET`, make up a long random password (letters, numbers, `_` and `-` only).
+<div dir="rtl">
 
-5. **Connect Telegram.** Open `https://life-bot.<you>.workers.dev/setup?secret=<your WEBHOOK_SECRET>` in a browser. It should show `"ok":true`.
-6. **Tell it who you are.** Message your bot anything. It replies with your chat id. Then:
+### قدم ۸: وصل کردن تلگرام
+این آدرس را در مرورگر باز کن. به جای بخش‌های آخر، آدرس خودت و رمز قدم ۷ را بگذار:
+
+`https://life-bot.اسم‌تو.workers.dev/setup?secret=رمز-تو`
+
+اگر `"ok":true` دیدی، وصل شد.
+
+### قدم ۹: به ربات بگو تو کی هستی
+1. در تلگرام ربات خودت را باز کن و Start بزن.
+2. جواب می‌دهد: «This is a private bot. Your chat id is 123456789». این عدد را کپی کن.
+3. این دستور را بزن و عدد را paste کن:
+
+</div>
 
 ```bash
 npx wrangler secret put CHAT_ID
 ```
 
-   Paste that number. Send `/help` to the bot and you're done.
+<div dir="rtl">
 
-### Options
+### قدم ۱۰: تمام! 🎉
+در تلگرام ‎/help بزن، بعد بنویس: «فردا ساعت ۱۰ صبح جلسه دارم». داشبورد را باز کن تا کار را آنجا ببینی.
 
-- **Time zone**: change `TZ` in `wrangler.toml` (default `Asia/Tehran`).
-- **Morning brief time**: change `crons` in `wrangler.toml` (it's in UTC; `30 4 * * *` = 08:00 Tehran). Delete the `[triggers]` block to turn it off.
-- **Gist**: the bot finds the `life-dashboard.json` gist on its own. To pin it, add `GIST_ID = "…"` under `[vars]`.
+## تنظیمات (اختیاری)
+در فایل `wrangler.toml`. بعد از تغییر، دوباره `npx wrangler deploy` بزن.
 
-Run `npx wrangler deploy` again after changing `wrangler.toml`.
+| تنظیم | پیش‌فرض | یعنی |
+|---|---|---|
+| `TZ` | `Asia/Tehran` | منطقه‌ی زمانی |
+| `LANG` | `fa` | زبان خلاصه‌ها، یادآوری‌ها و دکمه‌ها (`fa` یا `en`). در گفتگو، ربات به زبانی جواب می‌دهد که تو می‌نویسی. |
+| `MORNING` | `08:00` | ساعت خلاصه‌ی صبح؛ `""` یعنی خاموش |
+| `EVENING` | `21:00` | ساعت مرور شب؛ `""` یعنی خاموش |
+| `MODEL` | `claude-opus-5-5` | مدل Claude. برای ارزان‌تر شدن (ولی کمی کم‌هوش‌تر): `claude-haiku-5-5` |
+| `EFFORT` | `low` | میزان فکر کردن: `low` سریع، `medium` یا `high` دقیق‌تر ولی کندتر و گران‌تر |
+
+## اگر کار نکرد
+- **ربات جواب نمی‌دهد:** قدم ۸ را دوباره انجام بده و ببین `"ok":true` می‌آید یا نه.
+- **همه جواب «private bot» می‌گیرند، حتی خودت:** CHAT_ID را درست وارد نکردی. قدم ۹ را تکرار کن.
+- **«Could not find the dashboard data»:** Sync داشبورد روشن نیست (قدم ۱)، یا توکن گیت‌هاب با توکن داشبورد روی یک حساب نیست.
+- **خطای Claude:** کلید یا اعتبار حساب Anthropic را بررسی کن.
+- برای دیدن خطاها به‌صورت زنده: `npx wrangler tail`
+
+## چطور کار می‌کند (برای کنجکاوها)
+- `worker.js`: تلگرام، دستورها، دکمه‌ها، یادآوری‌ها، خلاصه‌ی صبح و شب (هر ۵ دقیقه بررسی می‌کند)
+- `brain.js`: Claude پیام را می‌فهمد و با چند ابزار ساده (پیدا کردن، افزودن، تغییر، ساختن برد، خواندن یادداشت) داشبورد را تغییر می‌دهد
+- `data.js`: خواندن و نوشتن داده‌ی داشبورد در gist، با همان روش ادغام داشبورد، تا هیچ تغییری از دستگاه دیگر گم نشود. حافظه‌ی ربات در فایل جداگانه‌ی `life-bot.json` در همان gist است.
+
+</div>
