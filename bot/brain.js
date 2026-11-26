@@ -203,13 +203,10 @@ async function chat(env, data, history, prompt, image, log) {
     : prompt;
   const messages = [{ role: 'system', content: SYSTEM }, ...history, { role: 'user', content: user }];
   let extras = { max_tokens: 4096, temperature: 0.3 }; // dropped if a provider doesn't accept them
+  const deadline = Date.now() + 25000; // Cloudflare gives background work about 30 seconds
 
   for (let round = 0; round < 10; round++) {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${env.AI_API_KEY}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ model, messages, tools: defs, tool_choice: 'auto', stream: false, ...extras }),
-    });
+    const r = await post(env, url, { model, messages, tools: defs, tool_choice: 'auto', stream: false, ...extras }, deadline - Date.now());
     if (r.status === 400 && Object.keys(extras).length) { extras = {}; round--; continue; }
     if (r.status === 401 || r.status === 403) throw new Error('The AI service rejected the key (AI_API_KEY).');
     if (r.status === 404) throw new Error(`The AI service doesn't know this address or model (AI_URL / AI_MODEL: ${model}).`);
@@ -231,4 +228,34 @@ async function chat(env, data, history, prompt, image, log) {
     }
   }
   return 'Sorry, that took too many steps. Please try again in simpler words.';
+}
+
+async function post(env, url, body, ms) {
+  if (ms < 1000) throw new Error('The AI service is too slow right now (over 25 seconds). Try again, or choose a faster model (AI_MODEL).');
+  try {
+    return await fetch(url, {
+      method: 'POST', signal: AbortSignal.timeout(ms),
+      headers: { Authorization: `Bearer ${env.AI_API_KEY}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') throw new Error('The AI service is too slow right now (over 25 seconds). Try again, or choose a faster model (AI_MODEL).');
+    throw new Error(`Could not reach the AI service: ${e.message}`);
+  }
+}
+
+// For /status: one tiny request, with how long it took or what went wrong.
+export async function checkAI(env) {
+  if (!env.AI_API_KEY) return '✗ AI: no AI_API_KEY secret (messages go straight to Inbox)';
+  const url = env.AI_URL || 'https://integrate.api.nvidia.com/v1/chat/completions';
+  const model = env.AI_MODEL || 'z-ai/glm-5.3-flash';
+  const t0 = Date.now();
+  try {
+    const r = await post(env, url, { model, messages: [{ role: 'user', content: 'Reply with just: ok' }], max_tokens: 200, stream: false }, 25000);
+    const text = await r.text();
+    if (!r.ok) return `✗ AI (${model}): error ${r.status} — ${text.slice(0, 300).replace(/[<>&]/g, '')}`;
+    return `✓ AI (${model}): answered in ${((Date.now() - t0) / 1000).toFixed(1)} s`;
+  } catch (e) {
+    return `✗ AI (${model}): ${e.message}`;
+  }
 }

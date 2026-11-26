@@ -4,7 +4,7 @@
 
    Secrets: TELEGRAM_TOKEN, GITHUB_TOKEN, WEBHOOK_SECRET, CHAT_ID, AI_API_KEY
    Settings in wrangler.toml: TZ, LANG, MORNING, EVENING, AI_URL, AI_MODEL, GIST_ID */
-import { think } from './brain.js';
+import { think, checkAI } from './brain.js';
 import { open, esc, live, isTask, boardList, boardName, openTasks, byDue, dayKey, nowKey, addDays, addMinutes, persianDate, inbox, addItem, findBoard } from './data.js';
 
 /* ---------- words (Farsi by default, LANG = "en" for English) ---------- */
@@ -33,7 +33,7 @@ const T = {
 
 هر روز صبح خلاصه‌ی روز و شب مرور روز را می‌فرستم. کارهایی که ساعت دارند سر وقت یادآوری می‌شوند.
 
-/today امروز · /list همه‌ی کارها · /new شروع گفتگوی تازه`,
+/today امروز · /list همه‌ی کارها · /new شروع گفتگوی تازه · /status بررسی اتصال‌ها`,
   },
   en: {
     late: 'Late', today: 'today', tomorrow: 'tomorrow', daysLate: n => `${n} day${n > 1 ? 's' : ''} late`,
@@ -58,7 +58,7 @@ Just write, like talking to a person:
 
 Every morning I send your day, every evening a short review. Tasks with a time get a reminder on time.
 
-/today today · /list all tasks · /new fresh conversation`,
+/today today · /list all tasks · /new fresh conversation · /status check connections`,
   },
 };
 const L = env => T[env.LANG === 'en' ? 'en' : 'fa'];
@@ -149,6 +149,15 @@ async function onMessage(env, m) {
   if (cmd === 'today') { const v = todayView(data.s, env); return send(env, v.msg, doneButtons(v.tasks, env)); }
   if (cmd === 'list') { const v = listView(data.s, env); return send(env, v.msg, doneButtons(v.tasks, env)); }
   if (cmd === 'new') { data.bot.chat = []; await data.save(); return send(env, w.forgot); }
+  if (cmd === 'status') {
+    const ai = await checkAI(env);
+    return send(env, [
+      `<b>Status</b>`,
+      `✓ Telegram`,
+      `✓ Dashboard: ${live(data.s.pages).length} pages, ${live(data.s.boards).length} boards, ${openTasks(data.s).length} open tasks`,
+      ai,
+    ].join('\n'));
+  }
 
   // Without an AI key the bot still works as a quick inbox: the message becomes a task.
   if (!env.AI_API_KEY) {
@@ -159,7 +168,7 @@ async function onMessage(env, m) {
     return send(env, `${w.added(esc(b.name))} ${esc(t.title)}`);
   }
 
-  tg(env, 'sendChatAction', { chat_id: env.CHAT_ID, action: 'typing' });
+  await tg(env, 'sendChatAction', { chat_id: env.CHAT_ID, action: 'typing' });
   const image = await photoOf(env, m);
   if (!text && !image) return;
   const reply = await think(env, data, { text: [m.reply_to_message?.text && `(replying to: "${m.reply_to_message.text.slice(0, 500)}")`, text].filter(Boolean).join('\n'), image });
@@ -212,7 +221,7 @@ async function tick(env) {
 }
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     // One-time setup: open https://<your-worker>/setup?secret=<WEBHOOK_SECRET> in a browser.
     if (url.pathname === '/setup') {
@@ -223,6 +232,7 @@ export default {
         { command: 'today', description: isFa ? 'کارهای امروز' : 'Today' },
         { command: 'list', description: isFa ? 'همه‌ی کارهای باز' : 'All open tasks' },
         { command: 'new', description: isFa ? 'شروع گفتگوی تازه' : 'Fresh conversation' },
+        { command: 'status', description: isFa ? 'بررسی اتصال‌ها' : 'Check connections' },
         { command: 'help', description: isFa ? 'راهنما' : 'Help' },
       ] });
       return Response.json(hook);
@@ -237,13 +247,17 @@ export default {
       if (u.message) await tg(env, 'sendMessage', { chat_id: chat, text: `This is a private bot. Your chat id is ${chat}` });
       return new Response('ok');
     }
-    try {
-      if (u.message) await onMessage(env, u.message);
-      else if (u.callback_query) await onButton(env, u.callback_query);
-    } catch (e) {
-      console.error(e);
-      await send(env, `⚠️ ${L(env).error} ${esc(e.message || String(e))}`);
-    }
+    // Answer Telegram right away and do the work in the background, so a slow AI
+    // never holds up your next messages.
+    ctx.waitUntil((async () => {
+      try {
+        if (u.message) await onMessage(env, u.message);
+        else if (u.callback_query) await onButton(env, u.callback_query);
+      } catch (e) {
+        console.error(e);
+        await send(env, `⚠️ ${L(env).error} ${esc(e.message || String(e))}`);
+      }
+    })());
     return new Response('ok');
   },
   async scheduled(_event, env, ctx) { ctx.waitUntil(tick(env)); },
