@@ -45,7 +45,26 @@
 همان توکنی که برای Sync داشبورد ساختی کار می‌کند. یا یک توکن تازه بساز:
 [این لینک](https://github.com/settings/tokens/new?scopes=gist&description=Life%20Telegram%20bot) را باز کن. فقط تیک **gist** را بزن، Expiration را طولانی بگذار و **Generate token** را بزن.
 
-### قدم ۴: کلید Claude (مغز ربات)
+### قدم ۴: مغز ربات، یکی از این دو را انتخاب کن
+
+**راه الف، رایگان (NVIDIA):**
+1. در [build.nvidia.com](https://build.nvidia.com) وارد شو و مدل `z-ai/glm-5.3-flash` را باز کن.
+2. **Generate API Key** را بزن. کلید با `nvapi-` شروع می‌شود. ⚠️ این کلید را به کسی نشان نده و در عکس هم نفرست.
+3. در قدم ۷، به جای `ANTHROPIC_API_KEY` این را بزن و کلید NVIDIA را paste کن:
+
+</div>
+
+```bash
+npx wrangler secret put AI_API_KEY
+```
+
+<div dir="rtl">
+
+> رایگان است، ولی محدودیت تعداد درخواست دارد و NVIDIA آن را برای آزمایش و نمونه‌سازی می‌دهد.
+> در فهمیدن فارسی، کارهای چندمرحله‌ای و خواندن عکس معمولاً از Claude ضعیف‌تر است. اول امتحانش کن، اگر راضی نبودی سراغ راه ب برو.
+> با همین روش می‌توانی هر API سازگار با OpenAI را هم وصل کنی: `AI_URL` و `AI_MODEL` را در `wrangler.toml` عوض کن.
+
+**راه ب، Claude (هوشمندترین؛ هر پیام حدود ۱ تا ۳ سنت):**
 1. به [console.anthropic.com](https://console.anthropic.com) برو و ثبت‌نام کن.
 2. از **Billing** کمی اعتبار بخر (۵ دلار برای مدت زیادی کافی است).
 3. از **API Keys** یک کلید بساز. با `sk-ant-` شروع می‌شود.
@@ -107,10 +126,16 @@ npx wrangler secret put TELEGRAM_TOKEN
 npx wrangler secret put GITHUB_TOKEN
 ```
 
-کلید Claude از قدم ۴:
+کلید مغز ربات از قدم ۴. برای Claude:
 
 ```bash
 npx wrangler secret put ANTHROPIC_API_KEY
+```
+
+یا برای NVIDIA (فقط یکی از این دو):
+
+```bash
+npx wrangler secret put AI_API_KEY
 ```
 
 یک رمز دلخواه و طولانی که خودت می‌سازی، فقط با حروف انگلیسی، عدد، `-` و `_` (مثلاً `my-life-bot-2026-secret`):
@@ -155,12 +180,15 @@ npx wrangler secret put CHAT_ID
 | `EVENING` | `21:00` | ساعت مرور شب؛ `""` یعنی خاموش |
 | `MODEL` | `claude-opus-5-5` | مدل Claude. برای ارزان‌تر شدن (ولی کمی کم‌هوش‌تر): `claude-haiku-5-5` |
 | `EFFORT` | `low` | میزان فکر کردن: `low` سریع، `medium` یا `high` دقیق‌تر ولی کندتر و گران‌تر |
+| `AI_URL` / `AI_MODEL` | NVIDIA، `z-ai/glm-5.3-flash` | وقتی به جای Claude کلید `AI_API_KEY` گذاشته باشی |
 
 ## اگر کار نکرد
 - **ربات جواب نمی‌دهد:** قدم ۸ را دوباره انجام بده و ببین `"ok":true` می‌آید یا نه.
 - **همه جواب «private bot» می‌گیرند، حتی خودت:** CHAT_ID را درست وارد نکردی. قدم ۹ را تکرار کن.
 - **«Could not find the dashboard data»:** Sync داشبورد روشن نیست (قدم ۱)، یا توکن گیت‌هاب با توکن داشبورد روی یک حساب نیست.
 - **خطای Claude:** کلید یا اعتبار حساب Anthropic را بررسی کن.
+- **«rate limit» با NVIDIA:** سرویس رایگان شلوغ است. یک دقیقه بعد دوباره امتحان کن.
+- اگر هر دو کلید را گذاشته باشی، Claude استفاده می‌شود.
 - برای دیدن خطاها به‌صورت زنده: `npx wrangler tail`
 
 ## چطور کار می‌کند (برای کنجکاوها)

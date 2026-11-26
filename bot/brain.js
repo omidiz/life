@@ -175,18 +175,29 @@ ${notepads.length ? `Notepad pages: ${notepads.join(', ')}\n` : ''}Open tasks: $
 }
 
 export async function think(env, data, { text, image }) {
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  const model = env.MODEL || 'claude-opus-5-5';
   const log = [];
-
   // A short memory of the conversation (last few exchanges, forgotten after 6 idle hours).
   const fresh = data.bot.chat.filter(m => Date.now() - m.at < 6 * 3600e3).slice(-12);
   const history = fresh.map(m => ({ role: m.r === 'u' ? 'user' : 'assistant', content: m.t }));
   while (history.length && history[0].role !== 'user') history.shift();
+  const prompt = `${context(data.s, env)}\n\n${text || '(photo)'}`;
 
+  let reply = env.ANTHROPIC_API_KEY
+    ? await claude(env, data, history, prompt, image, log)
+    : await openaiCompatible(env, data, history, prompt, image, log);
+  reply = reply.replace(/<think>[\s\S]*?<\/think>/g, '').trim() || '✓';
+
+  data.bot.chat = [...fresh, { r: 'u', t: text || '(sent a photo)', at: Date.now() }, { r: 'a', t: reply, at: Date.now() }].slice(-12);
+  data.bot.lastAdded = log.map(l => l.added).filter(Boolean);
+  return reply;
+}
+
+async function claude(env, data, history, prompt, image, log) {
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const model = env.MODEL || 'claude-opus-5-5';
   const content = [];
   if (image) content.push({ type: 'image', source: { type: 'base64', media_type: image.type, data: image.data } });
-  content.push({ type: 'text', text: `${context(data.s, env)}\n\n${text || '(photo)'}` });
+  content.push({ type: 'text', text: prompt });
 
   const runner = client.beta.messages.toolRunner({
     model,
@@ -200,11 +211,44 @@ export async function think(env, data, { text, image }) {
     messages: [...history, { role: 'user', content }],
   });
   const msg = await runner.runUntilDone();
-  let reply = msg.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-  if (msg.stop_reason === 'refusal') reply = 'Sorry, I can’t help with that one.';
-  if (!reply) reply = '✓';
+  if (msg.stop_reason === 'refusal') return 'Sorry, I can’t help with that one.';
+  return msg.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+}
 
-  data.bot.chat = [...fresh, { r: 'u', t: text || '(sent a photo)', at: Date.now() }, { r: 'a', t: reply, at: Date.now() }].slice(-12);
-  data.bot.lastAdded = log.map(l => l.added).filter(Boolean);
-  return reply;
+// Any OpenAI-compatible chat API with tool calling, e.g. NVIDIA's free endpoint (build.nvidia.com).
+async function openaiCompatible(env, data, history, prompt, image, log) {
+  const url = env.AI_URL || 'https://integrate.api.nvidia.com/v1/chat/completions';
+  const model = env.AI_MODEL || 'z-ai/glm-5.3-flash';
+  const list = tools(data.s, env, log);
+  const defs = list.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
+  const user = image
+    ? [{ type: 'image_url', image_url: { url: `data:${image.type};base64,${image.data}` } }, { type: 'text', text: prompt }]
+    : prompt;
+  const messages = [{ role: 'system', content: SYSTEM }, ...history, { role: 'user', content: user }];
+
+  for (let round = 0; round < 10; round++) {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.AI_API_KEY}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ model, messages, tools: defs, tool_choice: 'auto', max_tokens: 4096, temperature: 0.3, stream: false }),
+    });
+    if (r.status === 401 || r.status === 403) throw new Error('The AI service rejected the key (AI_API_KEY).');
+    if (r.status === 429) throw new Error('The AI service is busy (rate limit). Try again in a minute.');
+    if (!r.ok) throw new Error(`AI service error ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    const msg = (await r.json()).choices?.[0]?.message;
+    if (!msg) throw new Error('The AI service sent an empty answer.');
+    const calls = msg.tool_calls || [];
+    if (!calls.length) return msg.content || '';
+    messages.push({ role: 'assistant', content: msg.content || '', tool_calls: calls });
+    for (const c of calls) {
+      const tool = list.find(t => t.name === c.function?.name);
+      let result;
+      try {
+        const args = typeof c.function.arguments === 'string' ? JSON.parse(c.function.arguments || '{}') : c.function.arguments || {};
+        result = tool ? await tool.run(args) : `Unknown tool ${c.function?.name}`;
+      } catch (e) { result = `Error: ${e.message}`; }
+      messages.push({ role: 'tool', tool_call_id: c.id, content: String(result) });
+    }
+  }
+  return 'Sorry, that took too many steps. Please try again in simpler words.';
 }

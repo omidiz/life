@@ -2,8 +2,9 @@
    Runs as a Cloudflare Worker. Talk to it in Farsi or English; it understands, updates the
    dashboard (through the same gist the dashboard syncs with), reminds you, and briefs you.
 
-   Secrets (npx wrangler secret put …): TELEGRAM_TOKEN, GITHUB_TOKEN, ANTHROPIC_API_KEY, WEBHOOK_SECRET, CHAT_ID
-   Settings in wrangler.toml: TZ, LANG, MORNING, EVENING, MODEL, EFFORT, GIST_ID */
+   Secrets (npx wrangler secret put …): TELEGRAM_TOKEN, GITHUB_TOKEN, WEBHOOK_SECRET, CHAT_ID,
+   and one AI key: ANTHROPIC_API_KEY (Claude) or AI_API_KEY (NVIDIA or another OpenAI-compatible API)
+   Settings in wrangler.toml: TZ, LANG, MORNING, EVENING, MODEL, EFFORT, AI_URL, AI_MODEL, GIST_ID */
 import { think } from './brain.js';
 import { open, esc, live, isTask, boardList, boardName, openTasks, byDue, dayKey, nowKey, addDays, addMinutes, persianDate, inbox, addItem, findBoard } from './data.js';
 
@@ -149,7 +150,7 @@ async function onMessage(env, m) {
   if (cmd === 'new') { data.bot.chat = []; await data.save(); return send(env, w.forgot); }
 
   // Without a Claude key the bot still works as a quick inbox: the message becomes a task.
-  if (!env.ANTHROPIC_API_KEY) {
+  if (!env.ANTHROPIC_API_KEY && !env.AI_API_KEY) {
     if (!text) return;
     const tag = text.match(/(^|\s)#(\S+)/), b = (tag && findBoard(data.s, tag[2])) || inbox(data.s);
     const t = addItem(data.s, { title: tag ? text.replace(tag[0], ' ').trim() : text, boardId: b.id });

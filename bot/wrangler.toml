@@ -8,8 +8,12 @@ TZ = "Asia/Tehran"     # your time zone
 LANG = "fa"            # "fa" or "en": the language of briefs, reminders and buttons (chat follows your language)
 MORNING = "08:00"      # morning brief time; "" to turn it off
 EVENING = "21:00"      # evening review time; "" to turn it off
+# With the ANTHROPIC_API_KEY secret, Claude is the brain:
 MODEL = "claude-opus-5-5"
 EFFORT = "low"         # low = quick answers; medium/high = more careful thinking (slower, costs more)
+# With the AI_API_KEY secret instead, this OpenAI-compatible API is the brain (default: NVIDIA's free endpoint):
+AI_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+AI_MODEL = "z-ai/glm-5.3-flash"
 
 # Checks for reminders and brief times every 5 minutes.
 [triggers]
