@@ -741,3 +741,11 @@ header.top .date::after { content: '·'; margin-left: 14px; color: #5c6268; font
   .topbar .summary { font-size: 10.5px; }
   .topbar .pages { gap: 20px; }
 }
+/* + in the top-right corner of the board area */
+.canvas-add {
+  position: absolute; top: 14px; right: 14px; z-index: 5; width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 22px; line-height: 1; font-weight: 300;
+  color: var(--bar-muted); background: var(--panel); border: 1px solid #e3e6ea; box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.canvas-add:hover { color: var(--fg); border-color: var(--fg); }
+:root.dark .canvas-add { border-color: #2a2e31; }

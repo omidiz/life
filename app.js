@@ -774,7 +774,8 @@
     resizeWatch.disconnect();
     $('#boards').classList.toggle('canvas', canvas);
     $('#boards').innerHTML = list.map((b, i) => boardHTML(b, i, list.length)).join('') +
-      (canvas ? '' : '<button class="new-board" data-act="newboard">+ New board</button>');
+      (canvas ? '<button class="canvas-add" data-act="addcard" title="New board" aria-label="New board">+</button>'
+        : '<button class="new-board" data-act="newboard">+ New board</button>');
     if (canvas) { fitCanvas(); document.querySelectorAll('#boards .board').forEach(el => resizeWatch.observe(el)); }
     quiet = false;
   };
@@ -889,7 +890,8 @@
     const r = $('#boards').getBoundingClientRect();
     newBoard(e.clientX - r.left - 40, e.clientY - r.top - 24);
   });
-  $('#newBoardBtn').onclick = () => {
+  // The + in the top-right corner of the canvas adds a board under the others.
+  const addCard = () => {
     const list = boards();
     const bottom = list.length ? Math.max(...list.map(b => (b.y || 0) + (b.h || CARD_H))) + GAP : PAD;
     newBoard(PAD, bottom);
@@ -997,6 +999,8 @@
       return $(`[data-id="${id}"] .due-edit input`)?.focus();
     } else if (act === 'cleardue') {
       const t = taskOf(b); t.due = null; t.updated = now(); dueEditing = null;
+    } else if (act === 'addcard') {
+      return addCard();
     } else if (act === 'newboard') {
       return newBoard();
     } else if (act === 'colors') {

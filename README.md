@@ -16,8 +16,8 @@ It's an installable web app (PWA) that works offline.
 - **English and Farsi**: every line picks its own direction, so Farsi runs right-to-left and English left-to-right, with
   checkboxes and bullets on the right side. ⇆ in the notepad toolbar forces a line to RTL or LTR. The date, the Persian date and a live Tehran clock stay on screen in the header under the top bar.
 - **Whiteboard**: boards are cards on a dotted canvas. Drag a card by its title bar or empty space to put it anywhere,
-  resize it from the bottom-right corner, and double-click empty canvas (or press `+ New board`) to make a new card.
-  Positions and sizes sync. On a phone the cards stack in one column.
+  resize it from the bottom-right corner, and double-click empty canvas (or press + in its top-right corner) to make a new card.
+  Positions and sizes sync. The + in the top-right corner of the board area adds a card. On a phone the cards stack in one column.
 - **Cards**: tap a title to rename it; ○ changes the colour; × deletes.
 - **Bold**: select words and press Ctrl/⌘ B (again to undo), or press it before typing. On a phone, use **B** in the bar under the line.
 - **Line size**: with the cursor in a line, Ctrl/⌘ + makes it bigger, Ctrl/⌘ − smaller, Ctrl/⌘ 0 resets. On a phone, use A− / A+ in the bar under the line.
