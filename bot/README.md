@@ -72,6 +72,15 @@ npx wrangler secret put AI_API_KEY
 > هزینه: هر پیام معمولاً حدود ۱ تا ۳ سنت است. یادآوری‌ها، خلاصه‌ی صبح و شب و دستورهای /today و /list هزینه‌ای ندارند.
 > اگر کلید Claude نگذاری، ربات باز هم کار می‌کند، ولی ساده: هر پیام مستقیم یک کار در Inbox می‌شود.
 
+### راه بدون ترمینال (فقط مرورگر، حتی با گوشی)
+به جای قدم‌های ۵ تا ۷ می‌توانی Cloudflare را مستقیم به گیت‌هاب وصل کنی:
+1. در Cloudflare: **Workers & Pages** ← **Create** ← **Import a repository**، حساب گیت‌هاب را وصل کن و مخزن `life` را انتخاب کن.
+2. اسم پروژه را `life-bot` بگذار. در **Advanced settings**، فیلد **Path** (root directory) را `bot` بگذار. Deploy command همان `npx wrangler deploy` بماند. بعد **Deploy** را بزن.
+3. در **Settings** ← **Variables and Secrets** با **Add** این‌ها را از نوع **Secret** اضافه کن: `TELEGRAM_TOKEN`، `GITHUB_TOKEN`، `WEBHOOK_SECRET` و `AI_API_KEY` (یا `ANTHROPIC_API_KEY`).
+4. آدرس ربات (`https://life-bot....workers.dev`) را از صفحه‌ی پروژه بردار و قدم ۸ و ۹ را انجام بده. `CHAT_ID` را هم در همان صفحه‌ی Variables and Secrets اضافه کن.
+
+از این به بعد هر تغییری در گیت‌هاب خودکار روی ربات می‌نشیند. Cloudflare شاخه‌ی اصلی (`main`) را می‌سازد.
+
 ### قدم ۵: آماده کردن کامپیوتر
 1. [Node.js](https://nodejs.org) را نصب کن (نسخه‌ی LTS).
 2. پروژه را از گیت‌هاب دانلود کن و ترمینال را در پوشه‌ی `bot` باز کن.
