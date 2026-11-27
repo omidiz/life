@@ -155,7 +155,7 @@ export class ChatRoom {
     let dash;
     try { const s = (await openDashboard(c)).s; dash = ok(true, `Dashboard: ${live(s.pages).length} pages, ${live(s.boards).length} boards, ${openTasks(s).length} open tasks`); }
     catch (e) { dash = ok(false, `Dashboard: ${esc(e.message)}`); }
-    const mem = (await this.state.get('memory')) || [], errors = (await this.state.get('errors')) || [];
+    const mem = (await this.state.get('memory')) || [], errors = (await this.state.get('errors')) || []; // problems older than a day are not shown
     return [
       '<b>Status</b>', ok(true, 'Telegram'), esc(await checkAI(c)), dash,
       ok(true, `Web search: ${esc(searchService(c))}`),
@@ -163,7 +163,7 @@ export class ChatRoom {
       ok(true, `Voice: ${c.stt ? esc(c.stt.model) : 'straight to the model'}`),
       ok(!!c.repo, c.repo ? `GitHub: can edit ${esc(c.repo.name)}` : 'GitHub: not connected (GITHUB_REPO_TOKEN)'),
       ok(true, `Memory: ${mem.length} facts`),
-      errors.length ? `\nLast problem (${new Date(errors.at(-1).at).toISOString().slice(0, 16).replace('T', ' ')} UTC): <code>${esc(errors.at(-1).message.slice(0, 400))}</code>` : '',
+      errors.length && Date.now() - errors.at(-1).at < 864e5 ? `\nLast problem (${new Date(errors.at(-1).at).toISOString().slice(0, 16).replace('T', ' ')} UTC): <code>${esc(errors.at(-1).message.slice(0, 400))}</code>` : '',
     ].join('\n');
   }
 
