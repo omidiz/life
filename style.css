@@ -842,3 +842,33 @@ header.top .date::after { content: '·'; margin-left: 14px; color: #5c6268; font
 .board .number { padding: 1px 0; }
 .board .number .dot { width: 1.6em; text-align: right; padding-right: .3em; }
 .board .number[dir=rtl] .dot { text-align: left; padding-right: 0; padding-left: .3em; }
+
+/* ============ Side by side: several pages at once ============ */
+.topbar .split-btn svg { display: block; }
+.topbar .split-btn.on { color: var(--bar-fg); background: var(--cap-on); }
+html.splitting body { max-width: none; padding-bottom: 12px; }
+html.splitting #boards, html.splitting #doc { display: none !important; }
+.split { display: flex; gap: 12px; height: calc(100dvh - var(--nav-h, 64px) - 52px); min-height: 360px; }
+.split[hidden] { display: none; }
+.pane { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; border-radius: 18px; overflow: hidden;
+  background: var(--page); border: 1px solid #e3e6ea; transition: border-color .15s, box-shadow .15s; }
+.pane.active { border-color: #0b0b0c; box-shadow: 0 0 0 1px #0b0b0c; }
+:root.dark .pane { border-color: #2a2e31; } :root.dark .pane.active { border-color: #9a9aa2; box-shadow: 0 0 0 1px #9a9aa2; }
+.pane-head { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 10px; border-bottom: 1px solid #e3e6ea; background: var(--panel, #fff); }
+:root.dark .pane-head { border-bottom-color: #2a2e31; }
+.pane-page { flex: 1; min-width: 0; font: 600 14px var(--cap-font); border: none; background: transparent; color: var(--fg); padding: 4px 2px; cursor: pointer; outline: none; }
+.pane-close { border: none; background: none; color: var(--muted, #8b9198); font-size: 18px; line-height: 1; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; }
+.pane-close:hover { background: rgba(0,0,0,.06); color: var(--fg); }
+.pane-frame { flex: 1; width: 100%; border: 0; display: block; background: var(--page); }
+.pane-add { flex: none; align-self: flex-start; width: 40px; height: 40px; border-radius: 50%; border: 1px dashed #c9ced4; background: none;
+  color: var(--muted, #8b9198); font-size: 22px; cursor: pointer; }
+.pane-add:hover { border-style: solid; border-color: var(--fg); color: var(--fg); }
+.pane-add[hidden] { display: none; }
+@media (max-width: 700px) {
+  .split { overflow-x: auto; scroll-snap-type: x mandatory; }
+  .pane { flex: 0 0 92%; scroll-snap-align: start; }
+}
+/* inside a pane: no top bar, less padding */
+html.embed .topbar { display: none; }
+html.embed body { max-width: none; padding: 12px 12px 24px; }
+html.splitting .topbar .summary { display: none; }
