@@ -89,7 +89,7 @@ const mark = () => { sent.length = 0; calls.length = 0; aiBodies.length = 0; };
 
 /* ---------- the checks ---------- */
 mark(); ai.push({ text: 'سلام!' }); await say({ text: 'سلام' });
-check('menu: updated by itself on the first message', sent.some(s => s.m === 'setMyCommands' && s.commands.length === 8));
+check('menu: updated by itself on the first message', sent.some(s => s.m === 'setMyCommands' && s.commands.some(x => x.command === 'model') && s.commands.some(x => x.command === 'clean')));
 mark(); ai.push({ text: 'باز سلام!' }); await say({ text: 'سلام' });
 check('menu: not sent again when unchanged', !sent.some(s => s.m === 'setMyCommands'));
 await say({ text: '/new' });
@@ -229,6 +229,10 @@ await say({ text: '/model bb' });
 mark(); ai.push({ text: 'bb.' }); await say({ text: 'و حالا؟' });
 check('switch: /model name works too', aiBodies[0]?.model === 'bb' && aiBodies[0]._url.startsWith('https://ai.test'));
 await press('model:0');
+
+// /clean deletes the bot's recent messages
+mark(); await say({ text: '/clean' });
+check('/clean deletes the bot\'s recent messages', sent.some(s => s.m === 'deleteMessages' && s.message_ids.length >= 3) && /🧹/.test(lastText()));
 
 // someone else
 mark();
