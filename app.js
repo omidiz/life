@@ -942,6 +942,12 @@
     if (keep && p && name && name !== p.name) { p.name = name; p.updated = now(); save(); }
     renderNav();
   };
+  // with many pages the list scrolls sideways; let the normal mouse wheel scroll it
+  $('#pages').addEventListener('wheel', e => {
+    const el = e.currentTarget;
+    if (el.scrollWidth <= el.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    el.scrollLeft += e.deltaY; e.preventDefault();
+  }, { passive: false });
   $('#pages').addEventListener('click', e => {
     const el = e.target.closest('[data-act], .page-tab'); if (!el || el.matches('input')) return;
     if (el.dataset.act === 'addmenu') { addMenu = !addMenu; return renderNav(); }

@@ -830,3 +830,9 @@ header.top .date::after { content: '·'; margin-left: 14px; color: #5c6268; font
 }
 @media (max-width: 360px) { .topbar .summary { display: none; } }
 :root.dark .topbar { box-shadow: 0 0 0 1px #2c2c31, 0 10px 30px rgba(0,0,0,.5); }
+/* many pages: the bar grows up to the window width, then the pages scroll sideways with soft faded edges */
+.topbar .pages { scrollbar-width: none; padding: 0 14px; margin: 0 -14px;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+          mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent); }
+.topbar .pages::-webkit-scrollbar { display: none; }
+@media (max-width: 900px) { .topbar .pages { margin-left: -24px; } }
