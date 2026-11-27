@@ -10,6 +10,7 @@ import { checkAI, makeImage } from './ai.js';
 import { openDashboard, live, openTasks, inbox, addItem } from './dashboard.js';
 import { todayView, listView, doneButtons, planTick, taskButton } from './planner.js';
 import { proposalView, applyProposal, undoCommit, buildResult } from './tools/code.js';
+import { searchService } from './tools/search.js';
 
 export class ChatRoom {
   constructor(ctx, env) {
@@ -132,6 +133,7 @@ export class ChatRoom {
     const mem = (await this.state.get('memory')) || [], errors = (await this.state.get('errors')) || [];
     return [
       '<b>Status</b>', ok(true, 'Telegram'), esc(await checkAI(c)), dash,
+      ok(true, `Web search: ${esc(searchService(c))}`),
       ok(true, `Pictures: ${c.image ? esc(c.image.model) : 'free service (Pollinations)'}`),
       ok(true, `Voice: ${c.stt ? esc(c.stt.model) : 'straight to the model'}`),
       ok(!!c.repo, c.repo ? `GitHub: can edit ${esc(c.repo.name)}` : 'GitHub: not connected (GITHUB_REPO_TOKEN)'),

@@ -5,6 +5,7 @@ import { openDashboard } from './dashboard.js';
 import { generalTools } from './tools/general.js';
 import { dashboardTools } from './tools/dashboard.js';
 import { codeTools, proposalView } from './tools/code.js';
+import { searchTools } from './tools/search.js';
 import { now, weekday, persianDate } from './time.js';
 import { esc } from './telegram.js';
 
@@ -17,7 +18,11 @@ How you talk:
   questions (steps, lists, examples, code). No padding, don't repeat the question, no needless disclaimers.
 - Write in Markdown: **bold**, *italic*, lists, \`code\`, \`\`\` code blocks \`\`\`, and headings for long answers. Avoid tables.
 - Think as carefully as the question deserves and give your best, most complete answer.
-- Be honest when you don't know something or when it may be out of date; read a web page when a link is given.
+- You can search the web (web_search) and read pages (read_webpage). Search whenever the answer depends on anything
+  current or that you are not sure of (news, prices, rates, weather, events, recent releases, "today"/"latest"), and to
+  check facts. Read the best pages when snippets are not enough. Answer from what you found, in the user's language,
+  and end with the sources as short Markdown links: [site name](url). Say so if the search found nothing reliable.
+- Your own knowledge has a cutoff date; for anything that may have changed since, search instead of guessing.
 - The user may send photos, voice messages, PDFs, documents, spreadsheets, audio, video, code or links: read them fully and use them.
 - Never mention your tools, ids or JSON.
 
@@ -50,7 +55,7 @@ const CODE = `
 Your own code — you can improve yourself:
 - The GitHub repository holds you in bot/: src/worker.js (web entry), src/room.js (message queue, commands, buttons,
   timer), src/assistant.js (you: these instructions and a conversation turn), src/ai.js (the AI service, streaming,
-  pictures, voice), src/tools/*.js (your tools), src/planner.js (reminders, briefs, task lists), src/dashboard.js
+  pictures, voice), src/tools/*.js (your tools: general, search, dashboard, code), src/planner.js (reminders, briefs, task lists), src/dashboard.js
   (dashboard data), src/telegram.js, src/format.js, src/i18n.js (the bot's fixed texts), src/config.js (settings),
   wrangler.toml, README.md (the Farsi guide). The dashboard web app is at the top level (index.html, app.js, style.css).
 - When the user asks to change how you or the dashboard work, or something is broken: look (repo_list, repo_read,
@@ -129,7 +134,7 @@ export async function converse(c, tg, state, m, text) {
   // Tools get the dashboard only if they need it (loaded once per turn).
   let dash = null;
   const ctx = { c, state, out: {}, dashboard: () => (dash ||= openDashboard(c)) };
-  const tools = [...generalTools(ctx), ...(c.gist.token ? dashboardTools(ctx) : []), ...(c.repo ? codeTools(ctx) : [])];
+  const tools = [...generalTools(ctx), ...searchTools(ctx), ...(c.gist.token ? dashboardTools(ctx) : []), ...(c.repo ? codeTools(ctx) : [])];
 
   const past = await history(state);
   const messages = [

@@ -27,7 +27,7 @@ const nowLocal = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tehran
 let gist = { pages: [{ id: 'p-home', name: 'Home', order: 0 }], boards: [{ id: 'b-study', name: 'Study', pageId: 'p-home', order: 0 }], tasks: [] };
 const repo = { head: 'c0', commits: { c0: { tree: 't0', parents: [], message: 'init' } }, trees: { t0: { 'bot/wrangler.toml': 'MORNING = "08:00"\n' } }, n: 1 };
 let ai = []; // queue of answers: { text } streamed, { tools: [[name, args]] }, or a function(body) → answer
-const aiBodies = [], sent = [], calls = [];
+const aiBodies = [], sent = [], calls = [], searches = []; let ddgDown = false;
 const sse = events => new Response(new ReadableStream({ start(ctl) {
   for (const e of events) ctl.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: e }] })}\n\n`));
   ctl.enqueue(new TextEncoder().encode('data: [DONE]\n\n')); ctl.close();
@@ -60,6 +60,9 @@ globalThis.fetch = async (input, o = {}) => {
     if (a.tools) return sse(a.tools.map(([name, args], index) => ({ tool_calls: [{ index, id: 'c' + index, function: { name, arguments: JSON.stringify(args) } }] })));
     return sse(a.text.match(/.{1,12}/gs).map(content => ({ content })));
   }
+  if (url === 'https://api.tavily.com/search') { const b = JSON.parse(o.body); searches.push(['tavily', b.query, b.topic, o.headers.Authorization]); return J({ answer: 'Rate is 42.', results: [{ title: 'News', url: 'https://news.test/a', content: 'The rate is 42 today.' }] }); }
+  if (url === 'https://html.duckduckgo.com/html/') { searches.push(['ddg']); return ddgDown ? new Response('', { status: 403 }) : new Response('<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fddg.test%2F">DDG result</a><a class="result__snippet">snippet</a>'); }
+  if (url.includes('wikipedia.org/w/api.php')) { searches.push(['wiki', o.headers['User-Agent']]); return J({ query: { search: [{ title: 'تهران', snippet: 'پایتخت <span>ایران</span>' }] } }); }
   if (url.includes('pollinations')) return new Response(new Uint8Array([255, 216, 255]), { headers: { 'content-type': 'image/jpeg' } });
   if (url.includes('example.com')) return new Response('<html><title>Example</title><body><p>Hello page</p></body></html>', { headers: { 'content-type': 'text/html' } });
   if (url.includes('api.telegram.org/file/')) return new Response(new Uint8Array([37, 80, 68, 70]));
@@ -146,7 +149,7 @@ check('/new clears the conversation', !((await storage.get('chat')) || []).lengt
 mark(); await say({ text: '/today' });
 check('/today shows the day', lastText().includes('۱۴'), lastText());
 mark(); await say({ text: '\u200e /status' });
-check('/status works even with an invisible mark before it', /AI \(aa\)/.test(lastText()) && /Dashboard: \d+ pages/.test(lastText()) && /GitHub: can edit/.test(lastText()), lastText());
+check('/status works even with an invisible mark before it', /AI \(aa\)/.test(lastText()) && /Dashboard: \d+ pages/.test(lastText()) && /GitHub: can edit/.test(lastText()) && /Web search:/.test(lastText()), lastText());
 
 // reminders and the morning brief
 gist.tasks.push({ id: 'r1', boardId: 'b-study', type: 'task', title: 'قرص', due: nowLocal(), done: false, pos: 9, created: 1, updated: 1 });
@@ -197,6 +200,22 @@ mark(); ai.push({ tools: [['manage_page', { action: 'move', name: 'Ideas', posit
 await say({ text: 'Ideas رو اول بذار، Work رو Job کن و بعد پاکش کن' });
 const live_ = gist.pages.filter(p => !p.deleted).sort((a, b) => a.order - b.order);
 check('pages: moved, renamed, deleted', live_[0].name === 'Ideas' && !live_.some(p => p.name === 'Job') && gist.pages.some(p => p.name === 'Job' && p.deleted), JSON.stringify(live_.map(p => p.name)));
+
+// web search
+mark(); searches.length = 0; env.TAVILY_API_KEY = 'tv';
+ai.push({ tools: [['web_search', { query: 'dollar rate today', recent: true }]] }, b => ({ text: JSON.stringify(b.messages.at(-1)).includes('Rate is 42') ? 'نرخ ۴۲ است. [News](https://news.test/a)' : 'نه.' }));
+await say({ text: 'قیمت دلار امروز چنده؟' });
+check('search: Tavily used when its key is set (recent → news)', searches[0]?.[0] === 'tavily' && searches[0][2] === 'news' && searches[0][3] === 'Bearer tv', JSON.stringify(searches));
+check('search: the answer uses what was found, with a source link', /<a href="https:\/\/news.test\/a">News<\/a>/.test(lastText()), lastText());
+delete env.TAVILY_API_KEY; searches.length = 0;
+ai.push({ tools: [['web_search', { query: 'something' }]] }, b => ({ text: JSON.stringify(b.messages.at(-1)).includes('ddg.test') ? 'ddg' : 'نه' }));
+await say({ text: 'جست‌وجو کن' });
+check('search: without a key, DuckDuckGo first', searches[0]?.[0] === 'ddg' && lastText() === 'ddg', JSON.stringify(searches));
+ddgDown = true; searches.length = 0;
+ai.push({ tools: [['web_search', { query: 'تهران' }]] }, b => ({ text: JSON.stringify(b.messages.at(-1)).includes('Wikipedia') ? 'ویکی' : 'نه' }));
+await say({ text: 'تهران' });
+check('search: …and Wikipedia when DuckDuckGo refuses', searches.map(x => x[0]).join() === 'ddg,wiki' && lastText() === 'ویکی' && /https?:\/\//.test(searches[1][1]), JSON.stringify(searches));
+ddgDown = false;
 
 // switching models
 mark(); await say({ text: '/model' });

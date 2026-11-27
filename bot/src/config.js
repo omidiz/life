@@ -47,6 +47,7 @@ export function config(env, pick) {
     stt: env.STT_MODEL
       ? { model: env.STT_MODEL, url: env.STT_URL || aiBase + '/audio/transcriptions', key: env.STT_API_KEY || env.AI_API_KEY }
       : null, // → voice goes straight to the chat model
+    search: { tavily: env.TAVILY_API_KEY, brave: env.BRAVE_API_KEY, serper: env.SERPER_API_KEY },
     gist: { token: env.GITHUB_TOKEN, id: env.GIST_ID },
     repo: env.GITHUB_REPO_TOKEN ? { token: env.GITHUB_REPO_TOKEN, name: env.GITHUB_REPO || 'omidiz/life', branch: env.GITHUB_BRANCH || 'main' } : null,
   };
