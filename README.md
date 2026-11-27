@@ -1,4 +1,4 @@
-# Life — personal dashboard
+# os — personal dashboard
 
 Big black & white boards, one for each part of your life. Write your tasks and see everything at once, every day.
 It's an installable web app (PWA) that works offline.
@@ -36,7 +36,7 @@ It's an installable web app (PWA) that works offline.
 ## Sync between devices
 
 Open ⋯ → **Sync** and paste a GitHub token that has only the `gist` permission
-([create one](https://github.com/settings/tokens/new?scopes=gist&description=Life%20dashboard%20sync)).
+([create one](https://github.com/settings/tokens/new?scopes=gist&description=os%20dashboard%20sync)).
 Do the same on each device. Your data is stored in a secret gist named `life-dashboard.json` on your account.
 
 - Works offline. Changes sync when the device is back online, when you open the app, and every minute while it's open.

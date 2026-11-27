@@ -1,6 +1,6 @@
 {
-  "name": "Life — Personal Dashboard",
-  "short_name": "Life",
+  "name": "os — Personal Dashboard",
+  "short_name": "os",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
