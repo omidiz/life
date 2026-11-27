@@ -6,6 +6,11 @@
   const KEY = 'life-dashboard-v1';
   const SYNC_KEY = 'life-sync';
   const FILE = 'life-dashboard.json';
+  // Side-by-side view: each pane is this same app in a frame (index.html?pane=1#pageId).
+  // A pane has no top bar and never syncs itself; it asks the main window to sync instead.
+  const EMBED = new URLSearchParams(location.search).has('pane') && window.parent !== window;
+  const toParent = msg => { try { parent.postMessage(msg, location.origin); } catch {} };
+  if (EMBED) document.documentElement.classList.add('embed');
   const $ = (s, el = document) => el.querySelector(s);
   const uid = () => Math.random().toString(36).slice(2, 10);
   const now = () => Date.now();
@@ -78,6 +83,10 @@
   /* ---------- render ---------- */
   const pages = () => live(S.pages).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
   let page = decodeURIComponent(location.hash.slice(1)) || localStorage.getItem('life-page') || '';
+  // side-by-side panes (main window only): { pages: [pageId, …], active: index of the pane you're working in }
+  let split = null, splitQuiet = false;
+  if (!EMBED) try { split = JSON.parse(localStorage.getItem('life-split')); } catch {}
+  const saveSplit = () => split ? localStorage.setItem('life-split', JSON.stringify(split)) : localStorage.removeItem('life-split');
   const currentPage = () => {
     if (!pages().some(p => p.id === page)) page = pages()[0].id;
     return page;
@@ -671,10 +680,13 @@
       (addMenu ? `<span class="add-menu"><button class="page-tab" data-act="addpage" data-kind="boards">▦ Boards</button>
         <button class="page-tab" data-act="addpage" data-kind="doc">✎ Notepad</button></span>` : '');
     document.title = (pages().find(p => p.id === cur)?.name || 'os') + ' · os';
+    renderSplit();
   };
   const goTo = id => {
-    page = id; localStorage.setItem('life-page', id);
-    history.replaceState(null, '', '#' + encodeURIComponent(id));
+    page = id;
+    if (EMBED) toParent({ type: 'life-pane-page', id }); else localStorage.setItem('life-page', id);
+    history.replaceState(null, '', location.search + '#' + encodeURIComponent(id));
+    if (!EMBED && split && !splitQuiet) { split.pages[split.active] = id; saveSplit(); }
     picking = moving = null; if (pen2.on) setPen(false); render(); scrollTo({ top: 0 });
   };
 
@@ -1197,6 +1209,7 @@
   /* ================= sync (GitHub Gist) ================= */
   let sync = null;
   try { sync = JSON.parse(localStorage.getItem(SYNC_KEY)); } catch {}
+  if (EMBED) sync = null; // the main window does the syncing
   const storeSync = () => sync ? localStorage.setItem(SYNC_KEY, JSON.stringify(sync)) : localStorage.removeItem(SYNC_KEY);
   let syncState = 'off', syncError = '';
 
@@ -1258,7 +1271,7 @@
   }
 
   let syncing = false, again = false, syncTimer;
-  const scheduleSync = (delay = 1500) => { if (!sync) return; clearTimeout(syncTimer); syncTimer = setTimeout(runSync, delay); };
+  const scheduleSync = (delay = 1500) => { if (EMBED) return toParent({ type: 'life-sync' }); if (!sync) return; clearTimeout(syncTimer); syncTimer = setTimeout(runSync, delay); };
 
   async function runSync() {
     if (!sync) return setStatus('off');
@@ -1355,11 +1368,100 @@
     e.target.value = '';
   };
 
+  /* ---------- side by side: several pages at once, each in its own pane ---------- */
+  const MAX_PANES = 4;
+  const paneEls = () => [...document.querySelectorAll('#split .pane')];
+  const paneOptions = id => pages().map(p => `<option value="${esc(p.id)}"${p.id === id ? ' selected' : ''}>${p.kind === 'doc' ? '✎ ' : ''}${esc(p.name)}</option>`).join('');
+  const renderSplit = () => {
+    if (EMBED) return;
+    if (split) {
+      const ids = new Set(pages().map(p => p.id));
+      split.pages = (split.pages || []).filter(id => ids.has(id)).slice(0, MAX_PANES);
+      if (split.pages.length < 2) { const keep = split.pages[0]; split = null; saveSplit(); if (keep && keep !== page) return goTo(keep); }
+    }
+    const on = !!split, box = $('#split');
+    document.documentElement.classList.toggle('splitting', on);
+    $('#splitBtn').classList.toggle('on', on);
+    $('#splitBtn').title = on ? 'Back to one page' : 'Open pages side by side';
+    box.hidden = !on;
+    if (!on) { box.innerHTML = ''; return; }
+    split.active = Math.min(split.active || 0, split.pages.length - 1);
+    let els = paneEls();
+    els.slice(split.pages.length).forEach(el => el.remove());
+    split.pages.forEach((id, i) => {
+      let el = els[i];
+      if (!el) {
+        el = document.createElement('section'); el.className = 'pane';
+        el.innerHTML = `<div class="pane-head"><select class="pane-page" aria-label="Page in this pane"></select>
+          <button class="pane-close" data-act="paneclose" title="Close this pane" aria-label="Close this pane">×</button></div>
+          <iframe class="pane-frame" title="Page"></iframe>`;
+        box.insertBefore(el, $('#split .pane-add'));
+        el.dataset.cur = id; $('iframe', el).src = 'index.html?pane=1#' + encodeURIComponent(id);
+      } else if (el.dataset.cur !== id) {
+        el.dataset.cur = id; $('iframe', el).contentWindow?.postMessage({ type: 'life-goto', id }, location.origin);
+      }
+      $('select', el).innerHTML = paneOptions(id);
+      el.classList.toggle('active', i === split.active);
+    });
+    let add = $('#split .pane-add');
+    if (!add) { add = document.createElement('button'); add.className = 'pane-add'; add.dataset.act = 'paneadd'; add.textContent = '+'; add.title = 'Add another page side by side'; box.append(add); }
+    add.hidden = split.pages.length >= MAX_PANES;
+  };
+  const nextPage = (used = []) => (pages().find(p => !used.includes(p.id)) || pages()[0]).id;
+  const setActivePane = i => {
+    if (!split || split.active === i && page === split.pages[i]) return;
+    split.active = i; saveSplit();
+    splitQuiet = true; page = split.pages[i]; splitQuiet = false;
+    paneEls().forEach((el, k) => el.classList.toggle('active', k === i)); renderNav();
+  };
+  $('#splitBtn').onclick = () => {
+    if (split) { const keep = split.pages[split.active]; split = null; saveSplit(); goTo(keep); return; }
+    const cur = currentPage();
+    split = { pages: [cur, nextPage([cur])], active: 0 }; saveSplit(); renderNav();
+  };
+  $('#split').addEventListener('click', e => {
+    const b = e.target.closest('[data-act]'); if (!b || !split) return;
+    if (b.dataset.act === 'paneadd') { split.pages.push(nextPage(split.pages)); split.active = split.pages.length - 1; }
+    if (b.dataset.act === 'paneclose') {
+      const i = paneEls().indexOf(b.closest('.pane'));
+      paneEls()[i].remove(); split.pages.splice(i, 1); split.active = Math.max(0, Math.min(split.active, split.pages.length - 1));
+      if (split.active === i || split.active >= split.pages.length) split.active = 0;
+    }
+    saveSplit(); page = split ? split.pages[split.active] : page; renderNav();
+  });
+  $('#split').addEventListener('change', e => {
+    const sel = e.target.closest('.pane-page'); if (!sel || !split) return;
+    const i = paneEls().indexOf(sel.closest('.pane'));
+    split.pages[i] = sel.value; split.active = i; saveSplit(); page = sel.value; renderNav();
+  });
+  $('#split').addEventListener('pointerdown', e => { const el = e.target.closest('.pane'); if (el) setActivePane(paneEls().indexOf(el)); });
+  // messages between the main window and its panes
+  window.addEventListener('message', e => {
+    if (e.origin !== location.origin || !e.data) return;
+    const { type, id } = e.data;
+    if (EMBED) { if (type === 'life-goto' && id && id !== page) goTo(id); return; }
+    const i = paneEls().findIndex(el => $('iframe', el).contentWindow === e.source);
+    if (type === 'life-sync') scheduleSync();
+    if (i < 0 || !split) return;
+    if (type === 'life-pane-focus') setActivePane(i);
+    if (type === 'life-pane-page' && id) {
+      paneEls()[i].dataset.cur = id; split.pages[i] = id; saveSplit();
+      if (i === split.active) page = id;
+      renderNav();
+    }
+  });
+  if (EMBED) {
+    addEventListener('pointerdown', () => toParent({ type: 'life-pane-focus' }), true);
+    addEventListener('focusin', () => toParent({ type: 'life-pane-focus' }), true);
+  }
+  if (split) { split.active = Math.min(split.active || 0, (split.pages || []).length - 1); if (split.pages?.[split.active]) page = split.pages[split.active]; }
+
   /* ---------- boot ---------- */
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
   window.addEventListener('storage', e => {
-    if (e.key === KEY && e.newValue) { S = migrate(JSON.parse(e.newValue)); softRender(); }
-    if (e.key === SYNC_KEY) { try { sync = JSON.parse(e.newValue); } catch { sync = null; } }
+    if (e.key === KEY && e.newValue) { S = migrate(JSON.parse(e.newValue)); applyTheme(); softRender(); }
+    if (e.key === 'life-textsize') { textSize = +e.newValue || 1; applyTextSize(); }
+    if (e.key === SYNC_KEY && !EMBED) { try { sync = JSON.parse(e.newValue); } catch { sync = null; } }
   });
   window.addEventListener('online', () => scheduleSync(0));
   window.addEventListener('offline', () => sync && setStatus('offline'));
@@ -1390,7 +1492,7 @@
 
   // Keep the installed app up to date: check for a new version whenever it's opened,
   // and reload once when one arrives (unless you're in the middle of typing).
-  if ('serviceWorker' in navigator) {
+  if ('serviceWorker' in navigator && !EMBED) {
     const hadController = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
       // Look for a new version whenever the app comes back into view, regains focus or
