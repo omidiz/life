@@ -4,7 +4,7 @@ Big black & white boards, one for each part of your life. Write your tasks and s
 It's an installable web app (PWA) that works offline.
 
 - **Pages**: the bar at the top switches between pages (e.g. Home, School, Work), each with its own cards.
-  `+` adds a page (Boards or Notepad), double-click a tab to rename it, × on the current tab deletes it. ⇢ on a card moves it to another page.
+  `+` adds a page (Boards or Notepad), double-click a tab to rename it, × on the current tab deletes it. ⇢ on a card moves or copies it to another page.
 - **Notepad pages**: `+` → **Notepad** gives a blank sheet to write anything, like a simple Word page.
   The toolbar (or shortcuts at the start of a line) adds headings (`# `, `## `), bullet lists (`- `), numbered lists (`1. `),
   tasks you can tick (`[] `), quotes (`> `) and **bold** / *italic* / underline (Ctrl/⌘ B, I, U).
@@ -18,12 +18,12 @@ It's an installable web app (PWA) that works offline.
 - **Whiteboard**: boards are cards on a dotted canvas. Drag a card by its title bar or empty space to put it anywhere,
   resize it from the bottom-right corner, and double-click empty canvas (or press + in its top-right corner) to make a new card.
   Positions and sizes sync. The + in the top-right corner of the board area adds a card. On a phone the cards stack in one column.
-- **Cards**: tap a title to rename it; ○ changes the colour; × deletes.
+- **Cards**: tap a title to rename it; ○ changes the colour; × deletes. ⇢ moves a card to another page or copies it (to this page or any other), with everything on it.
 - **Bold**: select words and press Ctrl/⌘ B (again to undo), or press it before typing. On a phone, use **B** in the bar under the line.
 - **Line size**: with the cursor in a line, Ctrl/⌘ + makes it bigger, Ctrl/⌘ − smaller, Ctrl/⌘ 0 resets. On a phone, use A− / A+ in the bar under the line.
 - **Text size**: ⋯ → Text size scales all text on this device (it doesn't sync, so phone and laptop can differ).
 - **Write straight on a board**: tap anywhere on it and type, like a page. Enter starts a new line.
-  Start a line with `[] ` for a task, `- ` for a list item or `# ` for a heading, or tap **Text · Task · List · Heading**
+  Start a line with `[] ` for a task, `- ` for a list item, `1. ` for a numbered list (1. 2. 3. …) or `# ` for a heading, or tap **Text · Task · List · 1. List · Heading**
   under the line you're writing. In a task or list, Enter makes the next one; Enter on an empty one turns it back into text.
   Shift+Enter adds a line break inside a paragraph. Backspace on an empty line removes it.
   Tap the circle to tick a task off; finished tasks stay crossed out until the end of the day, then tidy themselves away.

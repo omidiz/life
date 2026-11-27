@@ -54,14 +54,14 @@ export function dashboardTools(ctx) {
     },
     {
       name: 'add_items',
-      description: 'Add tasks, notes, headings or bullets to the dashboard. A task with a time is also a reminder at that time.',
+      description: 'Add tasks, notes, headings, bullets or numbered list lines to the dashboard. A task with a time is also a reminder at that time.',
       input_schema: obj({
         items: {
           type: 'array',
           items: obj({
             title: { type: 'string' },
             board: { type: 'string', description: 'Existing board name (by meaning). Empty → Inbox.' },
-            type: { type: 'string', enum: ['task', 'note', 'heading', 'bullet'], description: 'Default task.' },
+            type: { type: 'string', enum: ['task', 'note', 'heading', 'bullet', 'number'], description: 'Default task.' },
             due: { type: 'string', description: 'YYYY-MM-DD or YYYY-MM-DDTHH:MM (local, 24h). Tasks only.' },
           }, ['title']),
         },
