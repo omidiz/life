@@ -49,7 +49,7 @@ export class ChatRoom {
     }
   }
 
-  config = async () => config(this.env, await this.state.get('model'));
+  config = async () => config(this.env, await this.state.get('model'), await this.state.get('think'));
 
   async handle(u) {
     const c = await this.config(), tg = telegram(c, id => this.trackSent(id));
@@ -127,11 +127,14 @@ export class ChatRoom {
       case 'status': return tg.send(await this.status(c));
       case 'model': {
         if (arg) { await this.state.put('model', { model: arg, url: c.ai.url }); return tg.send(w.modelSet(esc(arg))); }
-        if (c.models.length < 2) return tg.send(w.modelOnlyOne(esc(c.ai.model)));
-        return tg.send(w.modelTitle(esc(c.ai.model)), { reply_markup: { inline_keyboard: c.models.map((m, i) => [{
-          text: `${m.model === c.ai.model && m.url === c.ai.url ? '● ' : ''}${m.model}${new Set(c.models.map(x => x.url)).size > 1 ? '  · ' + new URL(m.url).hostname : ''}`.slice(0, 60),
-          callback_data: `model:${i}`,
-        }]) } });
+        return tg.send(c.models.length < 2 ? w.modelOnlyOne(esc(c.ai.model)) : w.modelTitle(esc(c.ai.model)), { reply_markup: { inline_keyboard: [
+          ...(c.models.length < 2 ? [] : c.models.map((m, i) => [{
+            text: `${m.model === c.ai.model && m.url === c.ai.url ? '● ' : ''}${m.model}${new Set(c.models.map(x => x.url)).size > 1 ? '  · ' + new URL(m.url).hostname : ''}`.slice(0, 60),
+            callback_data: `model:${i}`,
+          }])),
+          // speed: how long the model thinks before it starts writing
+          [['low', w.fast], ['medium', w.balanced], ['high', w.deep]].map(([v, label]) => ({ text: (c.ai.reasoning === v ? '● ' : '') + label, callback_data: `think:${v}` })),
+        ] } });
       }
     }
 
@@ -169,6 +172,13 @@ export class ChatRoom {
     const [kind, act, id] = (q.data || '').split(':');
     if (kind === 'mem') { await this.state.put('memory', []); await tg.answerButton(q.id); if (q.message) await tg.edit(q.message.message_id, words(c).memoryCleared); return; }
     if (kind === 'dev') return this.devButton(c, tg, q, act, id);
+    if (kind === 'think') {
+      await this.state.put('think', act);
+      const label = { low: words(c).fast, medium: words(c).balanced, high: words(c).deep }[act] || act;
+      await tg.answerButton(q.id, label);
+      if (q.message) await tg.edit(q.message.message_id, words(c).thinkSet(label));
+      return;
+    }
     if (kind === 'model') {
       const m = c.models[+act];
       if (!m) return tg.answerButton(q.id, '?');

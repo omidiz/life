@@ -19,7 +19,8 @@ export function models(env) {
 }
 
 // pick: the model chosen with /model ({ model, url }), or nothing for the main one.
-export function config(env, pick) {
+// think: the speed chosen with /model (low | medium | high), or nothing for AI_REASONING.
+export function config(env, pick, think) {
   const aiUrl = (env.AI_URL || 'https://integrate.api.nvidia.com/v1').trim().replace(/\/+$/, '');
   const aiBase = aiUrl.replace(/\/chat\/completions$/, '');
   const all = models(env);
@@ -38,7 +39,7 @@ export function config(env, pick) {
       url: chosen.url,
       model: chosen.model,
       key: chosen.key,
-      reasoning: env.AI_REASONING === '' ? null : env.AI_REASONING || 'high',
+      reasoning: think || (env.AI_REASONING === '' ? null : env.AI_REASONING || 'high'),
       maxTokens: +env.AI_MAX_TOKENS || 32000,
     },
     image: env.IMAGE_MODEL

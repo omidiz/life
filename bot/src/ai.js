@@ -126,9 +126,13 @@ export async function checkAI(c) {
   if (!c.ai.key) return '✗ AI: no AI_API_KEY';
   const t0 = Date.now();
   try {
-    const r = await post(c.ai.url, c.ai.key, { model: c.ai.model, messages: [{ role: 'user', content: 'Reply with just: ok' }], max_tokens: 200, stream: false }, 25000);
+    const r = await post(c.ai.url, c.ai.key, { model: c.ai.model, messages: [{ role: 'user', content: 'Reply with just: ok' }], max_tokens: 200, stream: true,
+      ...(c.ai.reasoning && { reasoning_effort: c.ai.reasoning }) }, 60000);
     if (!r.ok) return `✗ AI (${c.ai.model}): error ${r.status} — ${(await r.text()).slice(0, 300).replace(/[<>&]/g, '')}`;
-    return `✓ AI (${c.ai.model}): answered in ${((Date.now() - t0) / 1000).toFixed(1)} s`;
+    let first = 0;
+    await readReply(r, t => { if (t && !first) first = Date.now(); });
+    const end = Date.now(), s = ms => (ms / 1000).toFixed(1) + ' s';
+    return `✓ AI (${c.ai.model}, thinking: ${c.ai.reasoning || 'default'}): first word after ${s((first || end) - t0)}, done after ${s(end - t0)}`;
   } catch (e) { return `✗ AI (${c.ai.model}): ${e.message}`; }
 }
 

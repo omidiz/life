@@ -64,13 +64,15 @@ Your own code — you can improve yourself:
 - Nothing changes until the user presses Apply; Cloudflare then rebuilds you in about a minute.
 - Never put keys, tokens or passwords in files: they belong in Cloudflare (Settings → Variables and Secrets), set by the user.`;
 
+// The instructions stay the same from message to message (services reuse what they already read, so the answer
+// starts sooner); what changes every time (the clock) goes with the newest message instead.
 async function system(c, state) {
   const memory = (await state.get('memory')) || [];
-  const t = now(c.tz);
   return PERSONA + (c.repo ? CODE : '')
-    + `\n\nWhat you know about the user:\n${memory.length ? memory.map(m => `- [${m.id}] ${m.text}`).join('\n') : '(nothing yet)'}`
-    + `\n\nNow: ${weekday(c.tz)} ${t.replace('T', ' ')} (${c.tz}); Persian date: ${persianDate(c.tz)}.`;
+    + `\n\nThe current date and time are given at the start of the user's newest message.`
+    + `\n\nWhat you know about the user:\n${memory.length ? memory.map(m => `- [${m.id}] ${m.text}`).join('\n') : '(nothing yet)'}`;
 }
+const clock = c => `[Now: ${weekday(c.tz)} ${now(c.tz).replace('T', ' ')} (${c.tz}); Persian date: ${persianDate(c.tz)}]`;
 
 /* ---------- what came with the message ---------- */
 const b64 = bytes => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
@@ -140,7 +142,7 @@ export async function converse(c, tg, state, m, text) {
   const messages = [
     { role: 'system', content: await system(c, state) },
     ...past.map(x => ({ role: x.r === 'u' ? 'user' : 'assistant', content: x.t })),
-    { role: 'user', content: att.parts.length ? [...att.parts, { type: 'text', text: text || '(see the attachment)' }] : text },
+    { role: 'user', content: att.parts.length ? [...att.parts, { type: 'text', text: `${clock(c)}\n${text || '(see the attachment)'}` }] : `${clock(c)}\n${text}` },
   ];
   const refused = (await state.get('refused')) || {};
   const errors = [];

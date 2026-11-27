@@ -55,7 +55,7 @@ globalThis.fetch = async (input, o = {}) => {
   if (url === 'https://ai.test/v1/chat/completions' || url === 'https://ai2.test/v1/chat/completions') {
     const body = JSON.parse(o.body); aiBodies.push({ ...body, _url: url, _key: o.headers.Authorization });
     if (!body.stream) return J({ choices: [{ message: { role: 'assistant', content: 'ok' } }] });
-    let a = ai.shift(); if (typeof a === 'function') a = a(body);
+    let a = ai.shift() || { text: 'ok' }; if (typeof a === 'function') a = a(body);
     if (a.status) return new Response(a.body, { status: a.status });
     if (a.tools) return sse(a.tools.map(([name, args], index) => ({ tool_calls: [{ index, id: 'c' + index, function: { name, arguments: JSON.stringify(args) } }] })));
     return sse(a.text.match(/.{1,12}/gs).map(content => ({ content })));
@@ -149,7 +149,7 @@ check('/new clears the conversation', !((await storage.get('chat')) || []).lengt
 mark(); await say({ text: '/today' });
 check('/today shows the day', lastText().includes('۱۴'), lastText());
 mark(); await say({ text: '\u200e /status' });
-check('/status works even with an invisible mark before it', /AI \(aa\)/.test(lastText()) && /Dashboard: \d+ pages/.test(lastText()) && /GitHub: can edit/.test(lastText()) && /Web search:/.test(lastText()), lastText());
+check('/status works even with an invisible mark before it', /AI \(aa[,)]/.test(lastText()) && /Dashboard: \d+ pages/.test(lastText()) && /GitHub: can edit/.test(lastText()) && /Web search:/.test(lastText()), lastText());
 
 // reminders and the morning brief
 gist.tasks.push({ id: 'r1', boardId: 'b-study', type: 'task', title: 'قرص', due: nowLocal(), done: false, pos: 9, created: 1, updated: 1 });
@@ -220,7 +220,7 @@ ddgDown = false;
 // switching models
 mark(); await say({ text: '/model' });
 const picker = sent.at(-1);
-check('/model lists every model with buttons', picker.reply_markup?.inline_keyboard?.length === 4 && picker.text.includes('aa'), JSON.stringify(picker.reply_markup));
+check('/model lists every model with buttons, plus a speed row', picker.reply_markup?.inline_keyboard?.length === 5 && picker.reply_markup.inline_keyboard[4].length === 3 && picker.text.includes('aa'), JSON.stringify(picker.reply_markup));
 await press('model:3');
 mark(); ai.push({ text: 'من dd هستم.' }); await say({ text: 'تو کی هستی؟' });
 check('switch: the chosen model on another service is used', aiBodies[0]?.model === 'dd' && aiBodies[0]._url.startsWith('https://ai2.test') && aiBodies[0]._key === 'Bearer k2', JSON.stringify(aiBodies[0] && { m: aiBodies[0].model, u: aiBodies[0]._url }));
@@ -229,6 +229,14 @@ await say({ text: '/model bb' });
 mark(); ai.push({ text: 'bb.' }); await say({ text: 'و حالا؟' });
 check('switch: /model name works too', aiBodies[0]?.model === 'bb' && aiBodies[0]._url.startsWith('https://ai.test'));
 await press('model:0');
+await press('think:low');
+mark(); ai.push({ text: 'سریع.' }); await say({ text: 'سلام سریع' });
+ai.push({ text: 'باز.' }); await say({ text: 'یکی دیگه' });
+check('speed: ⚡ fast asks the model to think little', aiBodies[0]?.reasoning_effort === 'low' || (aiBodies[0] && !('reasoning_effort' in aiBodies[0])), JSON.stringify(aiBodies[0]?.reasoning_effort));
+check('speed: the instructions are identical between messages (the clock goes with the message)', aiBodies[0]?.messages[0].content === aiBodies[1]?.messages[0].content && /\[Now: /.test(JSON.stringify(aiBodies[1]?.messages.at(-1))));
+await press('think:high');
+mark(); await say({ text: '/status' });
+check('/status measures the time to the first word', /first word after/.test(lastText()), lastText());
 
 // /clean deletes the bot's recent messages
 mark(); await say({ text: '/clean' });
