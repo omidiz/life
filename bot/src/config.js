@@ -19,7 +19,7 @@ export function models(env) {
 }
 
 // pick: the model chosen with /model ({ model, url }), or nothing for the main one.
-// think: the speed chosen with /model (low | medium | high), or nothing for AI_REASONING.
+// think: "low" when ⚡ fast is chosen with /model; otherwise AI_REASONING (default high = full power).
 export function config(env, pick, think) {
   const aiUrl = (env.AI_URL || 'https://integrate.api.nvidia.com/v1').trim().replace(/\/+$/, '');
   const aiBase = aiUrl.replace(/\/chat\/completions$/, '');

@@ -220,7 +220,7 @@ ddgDown = false;
 // switching models
 mark(); await say({ text: '/model' });
 const picker = sent.at(-1);
-check('/model lists every model with buttons, plus a speed row', picker.reply_markup?.inline_keyboard?.length === 5 && picker.reply_markup.inline_keyboard[4].length === 3 && picker.text.includes('aa'), JSON.stringify(picker.reply_markup));
+check('/model lists every model with buttons, plus a speed row', picker.reply_markup?.inline_keyboard?.length === 5 && picker.reply_markup.inline_keyboard[4].length === 2 && picker.text.includes('aa'), JSON.stringify(picker.reply_markup));
 await press('model:3');
 mark(); ai.push({ text: 'من dd هستم.' }); await say({ text: 'تو کی هستی؟' });
 check('switch: the chosen model on another service is used', aiBodies[0]?.model === 'dd' && aiBodies[0]._url.startsWith('https://ai2.test') && aiBodies[0]._key === 'Bearer k2', JSON.stringify(aiBodies[0] && { m: aiBodies[0].model, u: aiBodies[0]._url }));
@@ -232,9 +232,11 @@ await press('model:0');
 await press('think:low');
 mark(); ai.push({ text: 'سریع.' }); await say({ text: 'سلام سریع' });
 ai.push({ text: 'باز.' }); await say({ text: 'یکی دیگه' });
-check('speed: ⚡ fast asks the model to think little', aiBodies[0]?.reasoning_effort === 'low' || (aiBodies[0] && !('reasoning_effort' in aiBodies[0])), JSON.stringify(aiBodies[0]?.reasoning_effort));
+check('mode: ⚡ fast asks the model to think little', aiBodies[0]?.reasoning_effort === 'low' || (aiBodies[0] && !('reasoning_effort' in aiBodies[0])), JSON.stringify(aiBodies[0]?.reasoning_effort));
 check('speed: the instructions are identical between messages (the clock goes with the message)', aiBodies[0]?.messages[0].content === aiBodies[1]?.messages[0].content && /\[Now: /.test(JSON.stringify(aiBodies[1]?.messages.at(-1))));
-await press('think:high');
+await press('think:full');
+mark(); ai.push({ text: 'قوی.' }); await say({ text: 'با تمام توان' });
+check('mode: 🧠 full power asks for deep thinking (or the model default if it refuses)', aiBodies[0]?.reasoning_effort === 'high' || (aiBodies[0] && !('reasoning_effort' in aiBodies[0])), JSON.stringify(aiBodies[0]?.reasoning_effort));
 mark(); await say({ text: '/status' });
 check('/status measures the time to the first word', /first word after/.test(lastText()), lastText());
 

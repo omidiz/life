@@ -13,9 +13,9 @@ const T = {
     error: 'یک مشکل پیش آمد:', imgHow: 'بعد از /img بنویس چه عکسی می‌خواهی، مثلاً:\n/img a cozy cafe in Tehran at night, watercolor',
     memoryEmpty: 'هنوز چیزی درباره‌ات به خاطر نسپرده‌ام. هر وقت بخواهی بگو «یادت باشه که …».',
     memoryTitle: '🧠 <b>چیزهایی که درباره‌ات می‌دانم</b>', memoryClear: '🗑 پاک کردن همه', memoryCleared: 'همه پاک شد.',
-    modelTitle: m => `🤖 مدل فعلی: <b>${m}</b>\n\nبرای عوض کردن، یکی را انتخاب کن (گفتگو ادامه پیدا می‌کند).\nردیف آخر سرعت است: ⚡ سریع زودتر شروع به نوشتن می‌کند، 🧠 عمیق بیشتر فکر می‌کند.`,
-    clearProblems: '🗑 پاک کردن خطاهای ثبت‌شده', fast: '⚡ سریع', balanced: '⚖️ متعادل', deep: '🧠 عمیق', thinkSet: l => `از حالا: ${l}`,
-    modelSet: m => `🤖 از حالا با <b>${m}</b> حرف می‌زنی.`, modelOnlyOne: m => `🤖 مدل فعلی: <b>${m}</b>\n\nسرعت را از دکمه‌های پایین انتخاب کن. فقط یک مدل تعریف شده. برای اضافه کردن مدل‌های بیشتر، AI_MODELS یا AI2_MODEL را در Cloudflare بگذار (راهنما: README). یا بنویس:\n/model اسم-مدل`,
+    modelTitle: m => `🤖 مدل فعلی: <b>${m}</b>\n\nبرای عوض کردن، یکی را انتخاب کن (گفتگو ادامه پیدا می‌کند).\nردیف آخر حالت است: ⚡ سریع کم فکر می‌کند و زودتر جواب می‌دهد؛ 🧠 تمام توان با بیشترین قدرت مدل فکر می‌کند و جواب می‌دهد.`,
+    clearProblems: '🗑 پاک کردن خطاهای ثبت‌شده', fast: '⚡ سریع', deep: '🧠 تمام توان', thinkSet: l => `از حالا: ${l}`,
+    modelSet: m => `🤖 از حالا با <b>${m}</b> حرف می‌زنی.`, modelOnlyOne: m => `🤖 مدل فعلی: <b>${m}</b>\n\nحالت را از دکمه‌های پایین انتخاب کن. فقط یک مدل تعریف شده. برای اضافه کردن مدل‌های بیشتر، AI_MODELS یا AI2_MODEL را در Cloudflare بگذار (راهنما: README). یا بنویس:\n/model اسم-مدل`,
     noAi: 'برای گفتگو، کلید هوش مصنوعی (AI_API_KEY) را در Cloudflare بگذار. فعلاً پیامت به Inbox داشبورد رفت:',
     help: `<b>Life</b> — دستیار هوشمند شخصی تو.
 
@@ -43,9 +43,9 @@ const T = {
     error: 'Something went wrong:', imgHow: 'Write what picture you want after /img, e.g.\n/img a cozy cafe at night, watercolor',
     memoryEmpty: 'I haven’t saved anything about you yet. Say “remember that …” any time.',
     memoryTitle: '🧠 <b>What I know about you</b>', memoryClear: '🗑 Forget everything', memoryCleared: 'All forgotten.',
-    modelTitle: m => `🤖 Current model: <b>${m}</b>\n\nPick one to switch (the conversation carries on).\nThe last row is speed: ⚡ fast starts writing sooner, 🧠 deep thinks longer.`,
-    clearProblems: '🗑 Clear recorded problems', fast: '⚡ Fast', balanced: '⚖️ Balanced', deep: '🧠 Deep', thinkSet: l => `From now on: ${l}`,
-    modelSet: m => `🤖 From now on you’re talking to <b>${m}</b>.`, modelOnlyOne: m => `🤖 Current model: <b>${m}</b>\n\nPick a speed below. Only one model is set up. To add more, set AI_MODELS or AI2_MODEL in Cloudflare (see README), or write:\n/model model-name`,
+    modelTitle: m => `🤖 Current model: <b>${m}</b>\n\nPick one to switch (the conversation carries on).\nThe last row is the mode: ⚡ fast thinks little and answers sooner; 🧠 full power uses everything the model has.`,
+    clearProblems: '🗑 Clear recorded problems', fast: '⚡ Fast', deep: '🧠 Full power', thinkSet: l => `From now on: ${l}`,
+    modelSet: m => `🤖 From now on you’re talking to <b>${m}</b>.`, modelOnlyOne: m => `🤖 Current model: <b>${m}</b>\n\nPick a mode below. Only one model is set up. To add more, set AI_MODELS or AI2_MODEL in Cloudflare (see README), or write:\n/model model-name`,
     noAi: 'To chat, add the AI key (AI_API_KEY) in Cloudflare. For now your message went to the dashboard Inbox:',
     help: `<b>Life</b> — your personal smart assistant.
 
@@ -67,6 +67,6 @@ export const words = c => T[c.lang];
 
 // The command menu (the "Menu" button in Telegram). The bot keeps it up to date by itself.
 export const commands = c => [
-  ['new', 'گفتگوی تازه', 'Fresh conversation'], ['clean', 'پاک کردن پیام‌های اخیر ربات', 'Delete recent bot messages'], ['model', 'مدل و سرعت هوش مصنوعی', 'AI model and speed'], ['img', 'ساختن عکس', 'Make a picture'], ['memory', 'چیزهایی که درباره‌ات می‌دانم', 'What I remember about you'],
+  ['new', 'گفتگوی تازه', 'Fresh conversation'], ['clean', 'پاک کردن پیام‌های اخیر ربات', 'Delete recent bot messages'], ['model', 'مدل و حالت (سریع / تمام توان)', 'AI model and mode (fast / full power)'], ['img', 'ساختن عکس', 'Make a picture'], ['memory', 'چیزهایی که درباره‌ات می‌دانم', 'What I remember about you'],
   ['today', 'کارهای امروز', 'Today'], ['list', 'همه‌ی کارهای باز', 'All open tasks'], ['status', 'وضعیت اتصال‌ها', 'Check connections'], ['help', 'راهنما', 'Help'],
 ].map(([command, fa, en]) => ({ command, description: c.lang === 'fa' ? fa : en }));

@@ -49,7 +49,8 @@ export class ChatRoom {
     }
   }
 
-  config = async () => config(this.env, await this.state.get('model'), await this.state.get('think'));
+  // Speed: ⚡ fast (low) or 🧠 full power (the default: AI_REASONING, or high).
+  config = async () => config(this.env, await this.state.get('model'), (await this.state.get('think')) === 'low' ? 'low' : null);
 
   async handle(u) {
     const c = await this.config(), tg = telegram(c, id => this.trackSent(id));
@@ -136,7 +137,7 @@ export class ChatRoom {
             callback_data: `model:${i}`,
           }])),
           // speed: how long the model thinks before it starts writing
-          [['low', w.fast], ['medium', w.balanced], ['high', w.deep]].map(([v, label]) => ({ text: (c.ai.reasoning === v ? '● ' : '') + label, callback_data: `think:${v}` })),
+          [['low', w.fast], ['full', w.deep]].map(([v, label]) => ({ text: ((c.ai.reasoning === 'low') === (v === 'low') ? '● ' : '') + label, callback_data: `think:${v}` })),
         ] } });
       }
     }
@@ -178,7 +179,7 @@ export class ChatRoom {
     if (kind === 'dev') return this.devButton(c, tg, q, act, id);
     if (kind === 'think') {
       await this.state.put('think', act);
-      const label = { low: words(c).fast, medium: words(c).balanced, high: words(c).deep }[act] || act;
+      const label = act === 'low' ? words(c).fast : words(c).deep;
       await tg.answerButton(q.id, label);
       if (q.message) await tg.edit(q.message.message_id, words(c).thinkSet(label));
       return;
