@@ -872,3 +872,7 @@ html.splitting #boards, html.splitting #doc { display: none !important; }
 html.embed .topbar { display: none; }
 html.embed body { max-width: none; padding: 12px 12px 24px; }
 html.splitting .topbar .summary { display: none; }
+
+/* no scroll bars on cards and the board canvas: they still scroll with the wheel, trackpad or a finger */
+.boards.canvas, .boards.canvas .board, .board .items, .split { scrollbar-width: none; -ms-overflow-style: none; }
+.boards.canvas::-webkit-scrollbar, .boards.canvas .board::-webkit-scrollbar, .board .items::-webkit-scrollbar, .split::-webkit-scrollbar { display: none; width: 0; height: 0; }
