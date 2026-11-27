@@ -1,4 +1,4 @@
-/* Life — big boards for the parts of your life.
+/* os — big boards for the parts of your life.
    Data lives in localStorage and optionally syncs through a secret GitHub Gist.
    Every record carries an `updated` timestamp; deletes are kept as tombstones,
    so changes from several devices merge instead of overwriting each other. */
@@ -669,7 +669,7 @@
       '<button class="page-tab add" data-act="addmenu" title="New page" aria-label="New page">+</button>' +
       (addMenu ? `<span class="add-menu"><button class="page-tab" data-act="addpage" data-kind="boards">▦ Boards</button>
         <button class="page-tab" data-act="addpage" data-kind="doc">✎ Notepad</button></span>` : '');
-    document.title = (pages().find(p => p.id === cur)?.name || 'Life') + ' · Life';
+    document.title = (pages().find(p => p.id === cur)?.name || 'os') + ' · os';
   };
   const goTo = id => {
     page = id; localStorage.setItem('life-page', id);
@@ -1225,7 +1225,7 @@
       if (list.length < 100) break;
     }
     const g = await gh('/gists', { method: 'POST', body: JSON.stringify({
-      description: 'Life dashboard data (synced automatically, keep secret)', public: false,
+      description: 'os dashboard data (synced automatically, keep secret)', public: false,
       files: { [FILE]: { content: payload() } },
     }) });
     sync.gistId = g.id; storeSync();
@@ -1275,7 +1275,7 @@
       box.innerHTML = `
         <p class="muted">Keep every device up to date. Your data is stored in a secret gist on your GitHub account.</p>
         <ol>
-          <li><a href="https://github.com/settings/tokens/new?scopes=gist&description=Life%20dashboard%20sync" target="_blank" rel="noopener">Create a GitHub token</a> with only the <b>gist</b> box ticked and a long expiration.</li>
+          <li><a href="https://github.com/settings/tokens/new?scopes=gist&description=os%20dashboard%20sync" target="_blank" rel="noopener">Create a GitHub token</a> with only the <b>gist</b> box ticked and a long expiration.</li>
           <li>Paste it below. Do the same on every device (the same token is fine).</li>
         </ol>
         <form class="row" id="syncForm">
