@@ -85,6 +85,12 @@ export function telegram(c, onSent) {
           text = next;
           if (!timer) timer = setTimeout(() => { timer = null; chain = chain.then(() => flush(false)); }, Math.max(0, 900 - (Date.now() - last)));
         },
+        // Stopped half-way: replace what was shown with a short note.
+        async stop(note) {
+          clearTimeout(timer); timer = null;
+          await chain;
+          if (ids[0]) { await t.edit(ids[0], note); for (const id of ids.slice(1)) await t.del?.(id); }
+        },
         async finish(final) {
           clearTimeout(timer); timer = null;
           await chain;

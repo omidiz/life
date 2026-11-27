@@ -19,7 +19,7 @@ export function dashboardTools(ctx) {
   const dash = async () => (await ctx.dashboard()).s;
   return [
     {
-      name: 'dashboard_overview',
+      name: 'dashboard_overview', readOnly: true,
       description: 'See the dashboard: pages, boards with their number of open tasks, notepad pages, and how many tasks are late.',
       input_schema: obj({}),
       run: async () => {
@@ -31,7 +31,7 @@ export function dashboardTools(ctx) {
       },
     },
     {
-      name: 'find_items',
+      name: 'find_items', readOnly: true,
       description: 'Search dashboard items. With no filters: all open tasks. Use it before changing anything and to answer questions about tasks.',
       input_schema: obj({
         text: { type: 'string', description: 'Words in the title (any language). Empty for all.' },
@@ -183,7 +183,7 @@ export function dashboardTools(ctx) {
       },
     },
     {
-      name: 'read_notepad',
+      name: 'read_notepad', readOnly: true,
       description: "Read the user's notepad pages, sheet by sheet.",
       input_schema: obj({ page: { type: 'string', description: 'Page name; empty for all notepad pages.' } }),
       run: async ({ page }) => {

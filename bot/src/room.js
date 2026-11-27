@@ -1,20 +1,35 @@
 /* The bot's "room": a Cloudflare Durable Object that receives every Telegram message and the 5-minute timer.
-   - Messages are queued and answered one after another, each only once, with up to 15 minutes each.
+   - It reads your messages live, like a person: messages that come together (forwards, albums, quick
+     follow-ups) are answered together, and a new message stops an answer in progress, so "do X" followed
+     by "no, don't" ends with X not done. Commands and buttons run in order. Each message is handled once.
    - It keeps the bot's own memory: the conversation, what it knows about you, reminders sent, and so on.
      (Your tasks stay in the dashboard's gist; the bot reads them only when needed.) */
 import { config } from './config.js';
 import { telegram, esc } from './telegram.js';
 import { words, commands } from './i18n.js';
 import { converse } from './assistant.js';
-import { checkAI, makeImage } from './ai.js';
+import { checkAI, makeImage, Interrupted } from './ai.js';
 import { openDashboard, live, openTasks, inbox, addItem } from './dashboard.js';
 import { todayView, listView, doneButtons, planTick, taskButton } from './planner.js';
 import { proposalView, applyProposal, undoCommit, buildResult } from './tools/code.js';
 import { searchService } from './tools/search.js';
 
+const COMMANDS = new Set(['start', 'help', 'new', 'clean', 'img', 'image', 'memory', 'today', 'list', 'status', 'model']);
+// Invisible direction marks (often copied along with Farsi text) must not hide a command.
+const clean = t => String(t || '').replace(/^[\s\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]+/, '').trim();
+const commandOf = m => { const t = clean(m.text || m.caption); return t.startsWith('/') ? t.slice(1).split(/[\s@]/)[0].toLowerCase() : null; };
+// A message for the conversation (not a command, not a button).
+const isChat = u => !!u.message && !COMMANDS.has(commandOf(u.message));
+const comesInGroups = m => !!(m.media_group_id || m.forward_origin || m.forward_from || m.forward_sender_name || m.forward_from_chat);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 export class ChatRoom {
   constructor(ctx, env) {
     this.ctx = ctx; this.env = env; this.working = false;
+    this.current = null;  // the answer being written now (an AbortController), so a new message can stop it
+    this.carry = [];      // messages of an answer that was stopped: they are answered again together with the new ones
+    this.earlier = [];    // what that stopped answer had already done
+    this.lastArrival = 0;
     const store = ctx.storage;
     this.state = { get: k => store.get(k), put: (k, v) => store.put(k, v), delete: k => store.delete(k) };
   }
@@ -25,28 +40,73 @@ export class ChatRoom {
     const u = await req.json(), key = 'u:' + String(u.update_id).padStart(15, '0');
     if (((await store.get('last')) ?? -1) >= u.update_id || (await store.get(key))) return new Response('seen'); // Telegram re-sent it
     await store.put(key, u);
+    this.lastArrival = Date.now();
+    if (isChat(u) && this.current) this.current.abort(); // a new message: stop the answer in progress and read everything together
     if (!this.working && !(await store.getAlarm())) await store.setAlarm(Date.now());
     return new Response('ok');
   }
 
-  // Work through the queue, one message at a time.
+  async queue() { return [...(await this.ctx.storage.list({ prefix: 'u:' })).entries()]; }
+
+  // Work through the queue: a run of conversation messages becomes one answer; commands and buttons one by one.
   async alarm() {
     if (this.working) return;
     this.working = true;
     const store = this.ctx.storage;
     try {
       for (;;) {
-        const next = [...(await store.list({ prefix: 'u:', limit: 1 })).entries()][0];
-        if (!next) break;
-        const [key, u] = next;
-        await store.put('last', u.update_id);
-        await store.delete(key);
-        await this.handle(u);
+        let q = await this.queue();
+        if (!q.length && !this.carry.length) break;
+        if (q.length && !isChat(q[0][1]) && !this.carry.length) {
+          const [key, u] = q[0];
+          await store.put('last', u.update_id); await store.delete(key);
+          await this.handle(u);
+          continue;
+        }
+        // Forwards and albums arrive as several messages within a moment: wait until they have all come in.
+        for (let waited = 0; waited < 4000 && q.some(([, u]) => u.message && comesInGroups(u.message)) && Date.now() - this.lastArrival < 900; waited += 300) {
+          await sleep(300); q = await this.queue();
+        }
+        const run = [];
+        for (const [key, u] of q) { if (!isChat(u)) break; run.push(u); await store.put('last', u.update_id); await store.delete(key); }
+        await this.conversation([...this.carry, ...run.map(u => u.message)]);
       }
     } finally {
       this.working = false;
       if ((await store.list({ prefix: 'u:', limit: 1 })).size && !(await store.getAlarm())) await store.setAlarm(Date.now());
     }
+  }
+
+  // One answer to one or more messages. If a newer message stops it, the messages are kept for the next round.
+  async conversation(msgs) {
+    const c = await this.config(), tg = telegram(c, id => this.trackSent(id));
+    await this.keepMenuFresh(c, tg);
+    const controller = new AbortController();
+    this.current = controller;
+    const stopTyping = tg.busy();
+    try {
+      await this.chat(c, tg, msgs, controller.signal);
+      this.carry = []; this.earlier = [];
+    } catch (e) {
+      if (e instanceof Interrupted) { this.carry = msgs; this.earlier = e.done; return; }
+      this.carry = []; this.earlier = [];
+      console.error(e);
+      await tg.send(`⚠️ ${words(c).error} ${esc(e.message || String(e))}`);
+      await this.logError('message', e);
+    } finally { this.current = null; stopTyping(); }
+  }
+
+  async chat(c, tg, msgs, stop) {
+    // Without an AI key the bot still works as a quick inbox: each message becomes a task.
+    if (!c.ai.key) {
+      const texts = msgs.map(m => clean(m.text || m.caption)).filter(Boolean);
+      if (!texts.length || !c.gist.token) return;
+      const d = await openDashboard(c);
+      for (const t of texts) addItem(d.s, { title: t, boardId: inbox(d.s).id });
+      await d.save();
+      return tg.send(`${words(c).noAi} ${esc(texts.join(' · '))}`);
+    }
+    await converse(c, tg, this.state, msgs, { stop, earlier: this.earlier });
   }
 
   // Speed: ⚡ fast (low) or 🧠 full power (the default: AI_REASONING, or high).
@@ -102,9 +162,8 @@ export class ChatRoom {
 
   /* ---------- messages and commands ---------- */
   async message(c, tg, m) {
-    // Invisible direction marks (often copied along with Farsi text) must not hide a command.
-    const w = words(c), text = (m.text || m.caption || '').replace(/^[\s\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]+/, '').trim();
-    const cmd = text.startsWith('/') ? text.slice(1).split(/[\s@]/)[0].toLowerCase() : null;
+    const w = words(c), text = clean(m.text || m.caption);
+    const cmd = commandOf(m);
     const arg = cmd ? text.replace(/^\/\S+\s*/, '') : '';
 
     switch (cmd) {
@@ -142,16 +201,7 @@ export class ChatRoom {
       }
     }
 
-    // Without an AI key the bot still works as a quick inbox: the message becomes a task.
-    if (!c.ai.key) {
-      if (!text || !c.gist.token) return;
-      const d = await openDashboard(c), t = addItem(d.s, { title: text, boardId: inbox(d.s).id });
-      await d.save();
-      return tg.send(`${w.noAi} ${esc(t.title)}`);
-    }
-
-    const stop = tg.busy();
-    try { await converse(c, tg, this.state, m, text); } finally { stop(); }
+    return this.conversation([m]); // anything else is for the conversation
   }
 
   async status(c) {

@@ -15,7 +15,7 @@ export function generalTools(ctx) {
       run: async ({ prompt, shape }) => ({ image: await makeImage(ctx.c, String(prompt), shape), text: 'Done: the picture is sent to the user with your reply.' }),
     },
     {
-      name: 'read_webpage',
+      name: 'read_webpage', readOnly: true,
       description: 'Read the text of a web page (a link the user sent, or a page you know the address of).',
       input_schema: obj({ url: { type: 'string' } }, ['url']),
       run: async ({ url }) => {

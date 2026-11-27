@@ -1,6 +1,6 @@
 /* The assistant: who it is, what it remembers, what it can do, and one conversation turn
    (read the message and its attachments → think with the AI and its tools → answer live). */
-import { runAgent, transcribe } from './ai.js';
+import { runAgent, transcribe, Interrupted } from './ai.js';
 import { openDashboard } from './dashboard.js';
 import { generalTools } from './tools/general.js';
 import { dashboardTools } from './tools/dashboard.js';
@@ -122,16 +122,42 @@ async function history(state) {
 }
 
 /* ---------- one turn ---------- */
-export async function converse(c, tg, state, m, text) {
+// Who a forwarded message came from.
+const origin = m => {
+  const o = m.forward_origin;
+  if (o) return o.sender_user ? [o.sender_user.first_name, o.sender_user.last_name].filter(Boolean).join(' ') : o.sender_user_name || o.chat?.title || o.sender_chat?.title || 'someone';
+  return m.forward_from?.first_name || m.forward_sender_name || m.forward_from_chat?.title || null;
+};
+
+// One message → its text (with what kind of message it is) and its attachments.
+async function readMessage(c, tg, m) {
   const att = await attachments(c, tg, m);
+  let text = (m.text || m.caption || '').trim();
   if (att.heard) { await tg.send(`🎤 <i>${esc(att.heard)}</i>`); text = [text, att.heard].filter(Boolean).join('\n'); }
   if (att.text) text = `${text || 'Look at this file.'}\n\n${att.text}`;
   if (m.sticker && !text) text = `(sticker ${m.sticker.emoji || ''})`;
-  if (m.location) text = `${text} (my location: ${m.location.latitude}, ${m.location.longitude})`.trim();
+  if (m.location) text = `${text} (location: ${m.location.latitude}, ${m.location.longitude})`.trim();
   if (m.contact) text = `${text} (contact: ${[m.contact.first_name, m.contact.last_name].filter(Boolean).join(' ')} ${m.contact.phone_number})`.trim();
-  if (!text && !att.parts.length) return;
-  const quoted = m.reply_to_message?.text || m.reply_to_message?.caption;
+  const from = origin(m), quoted = m.reply_to_message?.text || m.reply_to_message?.caption;
   if (quoted) text = `(replying to: "${quoted}")\n${text}`;
+  if (from) text = `(forwarded from ${from})\n${text}`;
+  return { text, parts: att.parts, label: [from && 'forwarded', att.label].filter(Boolean).join(' ') };
+}
+
+// msgs: the user's messages to answer together (several when they came in a row or arrived while the bot was
+// answering). earlier: actions already taken in answers that a newer message stopped half-way.
+// Throws Interrupted when a newer message stops this answer (actions taken so far are saved and listed).
+export async function converse(c, tg, state, msgs, { stop, earlier = [] } = {}) {
+  const read = [];
+  for (const m of msgs) read.push(await readMessage(c, tg, m));
+  const items = read.filter(x => x.text || x.parts.length);
+  if (!items.length) return;
+  let text = items.length === 1 ? items[0].text
+    : `(The user sent ${items.length} messages in a row; read them all together. Later messages can change or cancel earlier ones.)\n\n`
+      + items.map((x, i) => `[Message ${i + 1}]\n${x.text || '(attachment)'}`).join('\n\n');
+  if (earlier.length) text += `\n\n(You had started answering these messages, but the user's newer message stopped you. Actions you had already taken:\n`
+    + earlier.map(x => `- ${x}`).join('\n') + `\nIf the user now says not to do something you already did, undo it (for example delete what you added) and say so briefly.)`;
+  const parts = items.flatMap(x => x.parts), label = items.map(x => x.label).filter(Boolean).join(', ');
 
   // Tools get the dashboard only if they need it (loaded once per turn).
   let dash = null;
@@ -142,15 +168,24 @@ export async function converse(c, tg, state, m, text) {
   const messages = [
     { role: 'system', content: await system(c, state) },
     ...past.map(x => ({ role: x.r === 'u' ? 'user' : 'assistant', content: x.t })),
-    { role: 'user', content: att.parts.length ? [...att.parts, { type: 'text', text: `${clock(c)}\n${text || '(see the attachment)'}` }] : `${clock(c)}\n${text}` },
+    { role: 'user', content: parts.length ? [...parts, { type: 'text', text: `${clock(c)}\n${text || '(see the attachment)'}` }] : `${clock(c)}\n${text}` },
   ];
   const refused = (await state.get('refused')) || {};
   const errors = [];
   const live = tg.live();
-  const answer = await runAgent(c, {
-    messages, tools, refused, onText: t => live.update(t),
-    onToolError: (name, e, args) => errors.push({ at: Date.now(), where: 'tool ' + name, message: `${e.message} — input: ${String(args).slice(0, 300)}` }),
-  });
+  let answer;
+  try {
+    answer = await runAgent(c, {
+      messages, tools, refused, stop, onText: t => live.update(t),
+      onToolError: (name, e, args) => errors.push({ at: Date.now(), where: 'tool ' + name, message: `${e.message} — input: ${String(args).slice(0, 300)}` }),
+    });
+  } catch (e) {
+    if (!(e instanceof Interrupted)) throw e;
+    await live.stop(c.lang === 'fa' ? '⏹ <i>پیام جدیدت رسید؛ همه را با هم می‌خوانم…</i>' : '⏹ <i>Your new message came in; reading them all together…</i>');
+    if (dash) await (await dash).save(); // what was already done stays done, and the next answer knows it
+    e.done = [...earlier, ...e.done];
+    throw e;
+  }
 
   // Answer first; saving comes after, so the user never waits for it.
   await live.finish(answer.text || (answer.images.length ? '' : '✓'));
@@ -160,8 +195,9 @@ export async function converse(c, tg, state, m, text) {
 
   if (dash) await (await dash).save();
   const cut = x => (x.length > 20000 ? x.slice(0, 20000) + ' …' : x);
+  const said = items.length === 1 ? items[0].text : items.map(x => x.text || '(attachment)').join('\n\n');
   await state.put('chat', [...past,
-    { r: 'u', t: cut(text || '(sent an attachment)') + (att.label ? ` [${att.label}]` : ''), at: Date.now() },
+    { r: 'u', t: cut(said || '(sent an attachment)') + (label ? ` [${label}]` : ''), at: Date.now() },
     { r: 'a', t: cut(answer.text || '(sent a picture)') + (answer.images.length ? ` [sent ${answer.images.length} picture(s)]` : ''), at: Date.now() },
   ]);
   await state.put('refused', refused);

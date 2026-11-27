@@ -51,7 +51,7 @@ export function codeTools(ctx) {
   const c = ctx.c;
   return [
     {
-      name: 'repo_list',
+      name: 'repo_list', readOnly: true,
       description: "List files in the user's GitHub repository (the bot's own code is in bot/, the dashboard app at the top level).",
       input_schema: { type: 'object', additionalProperties: false, properties: { path: { type: 'string', description: 'Folder, e.g. "bot". Empty for the top.' } } },
       run: async ({ path }) => {
@@ -60,7 +60,7 @@ export function codeTools(ctx) {
       },
     },
     {
-      name: 'repo_read',
+      name: 'repo_read', readOnly: true,
       description: 'Read a file from the repository. Always read a file before proposing changes to it.',
       input_schema: { type: 'object', additionalProperties: false, required: ['path'], properties: { path: { type: 'string' } } },
       run: async ({ path }) => {
@@ -109,7 +109,7 @@ export function codeTools(ctx) {
       },
     },
     {
-      name: 'bot_errors',
+      name: 'bot_errors', readOnly: true,
       description: 'The last problems the bot ran into (newest last), to find and fix bugs.',
       input_schema: { type: 'object', additionalProperties: false, properties: {} },
       run: async () => ((await ctx.state.get('errors')) || []).map(e => `${new Date(e.at).toISOString()} ${e.where}: ${e.message}`).join('\n') || 'No problems recorded.',

@@ -91,7 +91,7 @@ export async function webSearch(c, q, { recent = false, count = 8 } = {}) {
 
 export function searchTools(ctx) {
   return [{
-    name: 'web_search',
+    name: 'web_search', readOnly: true,
     description: 'Search the web. Use it for anything current or that you are not sure of: news, prices, exchange rates, '
       + 'weather, sports, releases, schedules, people, places, products, "latest"/"today" questions, and facts to check. '
       + 'Search in the language that will find the best sources (often English), and search again with other words if needed. '

@@ -32,6 +32,15 @@ const sse = events => new Response(new ReadableStream({ start(ctl) {
   for (const e of events) ctl.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: e }] })}\n\n`));
   ctl.enqueue(new TextEncoder().encode('data: [DONE]\n\n')); ctl.close();
 } }), { headers: { 'content-type': 'text/event-stream' } });
+// An answer that is written slowly (one piece every `ms`), and stops when the bot cancels the request.
+const slowSse = (text, ms, signal) => new Response(new ReadableStream({ async start(ctl) {
+  for (const content of text.match(/.{1,6}/gs)) {
+    if (signal?.aborted) { ctl.error(new DOMException('aborted', 'AbortError')); return; }
+    ctl.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`));
+    await new Promise(r => setTimeout(r, ms));
+  }
+  ctl.enqueue(new TextEncoder().encode('data: [DONE]\n\n')); ctl.close();
+} }), { headers: { 'content-type': 'text/event-stream' } });
 const J = x => new Response(JSON.stringify(x), { headers: { 'content-type': 'application/json' } });
 
 globalThis.fetch = async (input, o = {}) => {
@@ -57,6 +66,7 @@ globalThis.fetch = async (input, o = {}) => {
     if (!body.stream) return J({ choices: [{ message: { role: 'assistant', content: 'ok' } }] });
     let a = ai.shift() || { text: 'ok' }; if (typeof a === 'function') a = a(body);
     if (a.status) return new Response(a.body, { status: a.status });
+    if (a.slow) return slowSse(a.slow, a.ms || 100, o.signal);
     if (a.tools) return sse(a.tools.map(([name, args], index) => ({ tool_calls: [{ index, id: 'c' + index, function: { name, arguments: JSON.stringify(args) } }] })));
     return sse(a.text.match(/.{1,12}/gs).map(content => ({ content })));
   }
@@ -249,6 +259,40 @@ check('…and the button clears them', !((await storage.get('errors')) || []).le
 await storage.put('errors', [{ at: Date.now() - 5 * 3600e3, where: 'x', message: 'old one' }]);
 mark(); await say({ text: '/status' });
 check('/status hides problems older than 3 hours', !/old one/.test(lastText()));
+
+// reading messages live
+const msg = (extra) => ({ chat: { id: 42 }, message_id: uid, ...extra });
+const deliver = (message) => worker.fetch(new Request('https://bot.test/telegram', { method: 'POST', headers: { 'X-Telegram-Bot-Api-Secret-Token': 'sec' }, body: JSON.stringify({ update_id: uid++, message: msg(message) }) }), env);
+const settle = async () => { await wait(50); while (room.working || storage.alarm) await wait(20); };
+
+mark(); ai.push(b => ({ text: /\[Message 1\][\s\S]*سؤال اول[\s\S]*\[Message 2\][\s\S]*سؤال دوم[\s\S]*\[Message 3\][\s\S]*فقط اضافه/.test(JSON.stringify(b.messages.at(-1))) ? 'هر سه را با هم خواندم.' : 'جدا جدا!' }));
+await deliver({ text: 'سؤال اول', forward_origin: { type: 'user', sender_user: { first_name: 'Ali' } } });
+await deliver({ text: 'سؤال دوم', forward_origin: { type: 'user', sender_user: { first_name: 'Ali' } } });
+await deliver({ text: 'فقط اضافه‌شون کن' });
+await settle();
+check('live: forwarded messages and a quick follow-up are read together, in one answer', aiBodies.length === 1 && lastText().includes('با هم'), `${aiBodies.length} calls, ${lastText()}`);
+check('live: it knows who a forward came from', JSON.stringify(aiBodies[0]?.messages.at(-1)).includes('forwarded from Ali'));
+
+mark(); ai.push({ slow: 'این یک جواب طولانی به همه‌ی سؤال‌هاست که آرام نوشته می‌شود و نباید تمام شود…', ms: 120 },
+  b => ({ text: /حل کن[\s\S]*حل نکن/.test(JSON.stringify(b.messages.at(-1))) ? 'باشه، حلشان نمی‌کنم.' : 'نه!' }));
+await deliver({ text: 'این سؤال‌ها رو حل کن' });
+await wait(500);
+await deliver({ text: 'نه، حل نکن' });
+await settle();
+check('live: a new message stops the answer in progress', sent.some(s => s.m === 'editMessageText' && /⏹/.test(s.text)), JSON.stringify(sent.map(s => s.m)));
+check('live: then both messages are answered together, once', aiBodies.length === 2 && lastText() === 'باشه، حلشان نمی‌کنم.', `${aiBodies.length} | ${lastText()}`);
+check('live: the stopped answer never reaches the end', !sent.some(s => /نباید تمام شود/.test(s.text || '')));
+
+mark(); const before = gist.tasks.length;
+ai.push({ tools: [['add_items', { items: [{ title: 'خرید شیر' }] }]] }, { slow: 'اضافه کردم و حالا دارم توضیح می‌دهم که چرا شیر خوب است و …', ms: 150 },
+  b => ({ tools: JSON.stringify(b.messages.at(-1)).includes('add_items') ? [['find_items', { text: 'خرید شیر' }]] : [] }),
+  b => { const id = JSON.parse(b.messages.at(-1).content)[0]?.id; return { tools: [['update_items', { changes: [{ id, delete: true }] }]] }; },
+  { text: 'باشه، پاکش کردم.' });
+await deliver({ text: 'خرید شیر رو اضافه کن' });
+await wait(700);
+await deliver({ text: 'ولش کن، اضافه نکن' });
+await settle();
+check('live: if it had already done it, it knows and undoes it', gist.tasks.length === before + 1 && gist.tasks.at(-1).deleted === true && lastText().includes('پاکش کردم'), JSON.stringify(gist.tasks.at(-1)));
 
 // /clean deletes the bot's recent messages
 mark(); await say({ text: '/clean' });

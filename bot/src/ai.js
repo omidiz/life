@@ -4,15 +4,20 @@
 
 const TOO_SLOW = 'The AI service is too slow right now. Try again, or choose a faster model (AI_MODEL).';
 
-async function post(url, key, body, ms) {
+// Thrown when the user's newer message stops an answer half-way. `done` lists the actions already taken.
+export class Interrupted extends Error { constructor(done = []) { super('interrupted by a newer message'); this.done = done; } }
+
+async function post(url, key, body, ms, stop) {
   if (ms < 1000) throw new Error(TOO_SLOW);
+  if (stop?.aborted) throw new Interrupted();
   try {
     return await fetch(url, {
-      method: 'POST', signal: AbortSignal.timeout(ms),
+      method: 'POST', signal: stop ? AbortSignal.any([AbortSignal.timeout(ms), stop]) : AbortSignal.timeout(ms),
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
       body: JSON.stringify(body),
     });
   } catch (e) {
+    if (stop?.aborted) throw new Interrupted();
     if (e.name === 'TimeoutError' || e.name === 'AbortError') throw new Error(TOO_SLOW);
     throw new Error(`Could not reach the AI service: ${e.message}`);
   }
@@ -71,7 +76,13 @@ const parseArgs = a => (typeof a === 'string' ? JSON.parse(a || '{}') : a || {})
    tools: [{ name, description, input_schema, run(args) }]
    refused: settings this service said no to, per model (kept by the caller between turns)
    Returns { text, images }. */
-export async function runAgent(c, { messages, tools, onText = () => {}, refused = {}, onToolError = () => {} }) {
+export async function runAgent(c, { messages, tools, onText = () => {}, refused = {}, onToolError = () => {}, stop }) {
+  const done = []; // actions taken so far (to tell the model if a newer message interrupts this turn)
+  try { return await agentLoop(c, { messages, tools, onText, refused, onToolError, stop, done }); }
+  catch (e) { if (stop?.aborted || e instanceof Interrupted) throw new Interrupted(done); throw e; }
+}
+
+async function agentLoop(c, { messages, tools, onText, refused, onToolError, stop, done }) {
   const { url, model, key } = c.ai;
   const defs = tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
   // Full strength by default: deep thinking and long answers, streamed. Anything refused is dropped and remembered.
@@ -81,7 +92,7 @@ export async function runAgent(c, { messages, tools, onText = () => {}, refused 
   let shown = ''; // everything the user has seen, across tool rounds
 
   for (let round = 0; round < 30; round++) {
-    const r = await post(url, key, { model, messages, ...(defs.length && { tools: defs, tool_choice: 'auto' }), ...extras, stream: !!extras.stream }, deadline - Date.now());
+    const r = await post(url, key, { model, messages, ...(defs.length && { tools: defs, tool_choice: 'auto' }), ...extras, stream: !!extras.stream }, deadline - Date.now(), stop);
     if (r.status === 400 && Object.keys(extras).length) {
       const body = (await r.text()).toLowerCase(), keys = Object.keys(extras);
       const k = keys.find(k => body.includes(k)) || (keys.includes('reasoning_effort') ? 'reasoning_effort' : keys.find(k => k !== 'stream') || keys[0]);
@@ -105,10 +116,12 @@ export async function runAgent(c, { messages, tools, onText = () => {}, refused 
 
     messages.push({ role: 'assistant', content, tool_calls: calls });
     for (const call of calls) {
+      if (stop?.aborted) throw new Interrupted();
       const tool = tools.find(t => t.name === call.function?.name);
       let result;
       try {
         result = tool ? await tool.run(parseArgs(call.function.arguments)) : `Unknown tool ${call.function?.name}`;
+        if (tool && !tool.readOnly) done.push(`${call.function.name} ${String(call.function.arguments).slice(0, 400)} → ${String(result?.text ?? result).slice(0, 200)}`);
       } catch (e) {
         result = `Error: ${e.message}. Check the inputs and try again.`;
         onToolError(call.function?.name, e, call.function?.arguments);
