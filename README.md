@@ -5,6 +5,10 @@ It's an installable web app (PWA) that works offline.
 
 - **Pages**: the bar at the top switches between pages (e.g. Home, School, Work), each with its own cards.
   `+` adds a page (Boards or Notepad), double-click a tab to rename it, × on the current tab deletes it. ⇢ on a card moves or copies it to another page.
+- **Side by side**: the ▥ button in the top bar opens two pages next to each other. `+` adds another (up to 4),
+  the menu at the top of each pane picks its page, × closes it, and ▥ again goes back to one page. Clicking a tab
+  in the top bar opens that page in the pane you're working in (it has a dark outline). What you write in one
+  pane shows up in the others straight away, and the layout is remembered.
 - **Notepad pages**: `+` → **Notepad** gives a blank sheet to write anything, like a simple Word page.
   The toolbar (or shortcuts at the start of a line) adds headings (`# `, `## `), bullet lists (`- `), numbered lists (`1. `),
   tasks you can tick (`[] `), quotes (`> `) and **bold** / *italic* / underline (Ctrl/⌘ B, I, U).
