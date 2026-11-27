@@ -1367,7 +1367,13 @@
   if ('serviceWorker' in navigator) {
     const hadController = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
-      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+      // Look for a new version whenever the app comes back into view, regains focus or
+      // reconnects, and every minute while it stays open, so pushed changes show up fast.
+      const check = () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); };
+      document.addEventListener('visibilitychange', check);
+      window.addEventListener('focus', check);
+      window.addEventListener('online', check);
+      setInterval(check, 60 * 1000);
     }).catch(() => {});
     let reloaded = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
