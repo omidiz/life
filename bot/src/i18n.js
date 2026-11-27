@@ -9,6 +9,7 @@ const T = {
     open: n => `${fa(n)} کار باز داری.`, noOpen: 'هیچ کار بازی نداری 🎉', reminder: '⏰ یادآوری', tap: 'برای تیک زدن بزن:',
     btnDone: '✓ انجام شد', btn1h: '+۱ ساعت', btnTmr: 'فردا', ticked: '✓ انجام شد', snoozed: 'باشه، یک ساعت دیگر یادت می‌اندازم',
     moved: 'رفت برای فردا', gone: 'این کار دیگر نیست.', newChat: 'گفتگوی تازه 🧹 (چیزهایی که درباره‌ات به خاطر سپرده‌ام می‌مانند؛ /memory)',
+    cleaned: n => `🧹 ${fa(n)} پیام اخیر ربات پاک شد.`, cleanEmpty: '🧹 پیامی از ربات برای پاک کردن نیست (ربات فقط پیام‌های خودش در ۴۸ ساعت گذشته را می‌تواند پاک کند).',
     error: 'یک مشکل پیش آمد:', imgHow: 'بعد از /img بنویس چه عکسی می‌خواهی، مثلاً:\n/img a cozy cafe in Tehran at night, watercolor',
     memoryEmpty: 'هنوز چیزی درباره‌ات به خاطر نسپرده‌ام. هر وقت بخواهی بگو «یادت باشه که …».',
     memoryTitle: '🧠 <b>چیزهایی که درباره‌ات می‌دانم</b>', memoryClear: '🗑 پاک کردن همه', memoryCleared: 'همه پاک شد.',
@@ -28,7 +29,7 @@ const T = {
 • «فردا ساعت ۵ به مامان زنگ بزنم» · «این هفته چی دارم؟» · «تمرین فیزیک رو انجام دادم»
 • هر صبح خلاصه‌ی روز، هر شب مرور روز، و یادآوری سر وقت
 
-/new گفتگوی تازه · /model عوض کردن مدل · /img عکس · /memory حافظه · /today امروز · /list کارها · /status وضعیت`,
+/new گفتگوی تازه · /clean پاک کردن پیام‌ها · /model عوض کردن مدل · /img عکس · /memory حافظه · /today امروز · /list کارها · /status وضعیت`,
   },
   en: {
     late: 'Late', today: 'today', tomorrow: 'tomorrow', daysLate: n => `${n} day${n > 1 ? 's' : ''} late`,
@@ -37,6 +38,7 @@ const T = {
     open: n => `${n} open task${n === 1 ? '' : 's'}.`, noOpen: 'No open tasks 🎉', reminder: '⏰ Reminder', tap: 'Tap to tick off:',
     btnDone: '✓ Done', btn1h: '+1 hour', btnTmr: 'Tomorrow', ticked: '✓ Done', snoozed: 'OK, I’ll remind you in an hour',
     moved: 'Moved to tomorrow', gone: 'That task is gone.', newChat: 'Fresh conversation 🧹 (what I remember about you stays; /memory)',
+    cleaned: n => `🧹 Deleted ${n} recent bot message${n === 1 ? '' : 's'}.`, cleanEmpty: '🧹 No recent bot messages to delete (Telegram only lets bots delete their own messages from the last 48 hours).',
     error: 'Something went wrong:', imgHow: 'Write what picture you want after /img, e.g.\n/img a cozy cafe at night, watercolor',
     memoryEmpty: 'I haven’t saved anything about you yet. Say “remember that …” any time.',
     memoryTitle: '🧠 <b>What I know about you</b>', memoryClear: '🗑 Forget everything', memoryCleared: 'All forgotten.',
@@ -56,13 +58,13 @@ Your Life dashboard:
 • "Call mom tomorrow at 5" · "What do I have this week?" · "I finished the physics homework"
 • a morning brief, an evening review, and reminders on time
 
-/new fresh chat · /model switch model · /img picture · /memory memory · /today today · /list tasks · /status status`,
+/new fresh chat · /clean clean chat · /model switch model · /img picture · /memory memory · /today today · /list tasks · /status status`,
   },
 };
 export const words = c => T[c.lang];
 
 // The command menu (the "Menu" button in Telegram). The bot keeps it up to date by itself.
 export const commands = c => [
-  ['new', 'گفتگوی تازه', 'Fresh conversation'], ['model', 'عوض کردن مدل هوش مصنوعی', 'Switch AI model'], ['img', 'ساختن عکس', 'Make a picture'], ['memory', 'چیزهایی که درباره‌ات می‌دانم', 'What I remember about you'],
+  ['new', 'گفتگوی تازه', 'Fresh conversation'], ['clean', 'پاک کردن پیام‌های اخیر ربات', 'Delete recent bot messages'], ['model', 'عوض کردن مدل هوش مصنوعی', 'Switch AI model'], ['img', 'ساختن عکس', 'Make a picture'], ['memory', 'چیزهایی که درباره‌ات می‌دانم', 'What I remember about you'],
   ['today', 'کارهای امروز', 'Today'], ['list', 'همه‌ی کارهای باز', 'All open tasks'], ['status', 'وضعیت اتصال‌ها', 'Check connections'], ['help', 'راهنما', 'Help'],
 ].map(([command, fa, en]) => ({ command, description: c.lang === 'fa' ? fa : en }));

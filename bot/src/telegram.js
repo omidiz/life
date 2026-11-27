@@ -5,7 +5,7 @@ export const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', 
 // Keep Latin dates and times left-to-right inside Farsi text.
 export const ltr = x => `⁦${x}⁩`;
 
-export function telegram(c) {
+export function telegram(c, onSent) {
   const api = (method, body) => fetch(`https://api.telegram.org/bot${c.telegramToken}/${method}`, {
     method: 'POST', ...(body instanceof FormData ? { body } : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   }).then(r => r.json()).catch(e => ({ ok: false, description: e.message }));
@@ -16,16 +16,18 @@ export function telegram(c) {
     api,
     async send(html, extra = {}) {
       const body = { chat_id, text: html.slice(0, 4096), parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...extra };
-      const r = await api('sendMessage', body);
-      if (r.ok) return r;
-      delete body.parse_mode; body.text = plain(html).slice(0, 4096); // bad HTML: send as plain text
-      return api('sendMessage', body);
+      let r = await api('sendMessage', body);
+      if (!r.ok) { delete body.parse_mode; body.text = plain(html).slice(0, 4096); r = await api('sendMessage', body); } // bad HTML: send as plain text
+      if (r.ok && r.result?.message_id) await onSent?.(r.result.message_id);
+      return r;
     },
     async edit(id, html, extra = {}) {
       const r = await api('editMessageText', { chat_id, message_id: id, text: html.slice(0, 4096), parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...extra });
       if (r.ok || /not modified/.test(r.description || '')) return r;
       return api('editMessageText', { chat_id, message_id: id, text: plain(html).slice(0, 4096), ...extra });
     },
+    del: id => api('deleteMessage', { chat_id, message_id: id }),
+    delMany: ids => api('deleteMessages', { chat_id, message_ids: ids }),
     buttons: (id, rows) => api('editMessageReplyMarkup', { chat_id, message_id: id, reply_markup: { inline_keyboard: rows } }),
     answerButton: (id, text = '') => api('answerCallbackQuery', { callback_query_id: id, text: text.slice(0, 190) }),
     action: (action = 'typing') => api('sendChatAction', { chat_id, action }),
@@ -38,16 +40,21 @@ export function telegram(c) {
     },
 
     async sendPhoto(img, caption) {
-      if (img.url) return api('sendPhoto', { chat_id, photo: img.url, ...(caption && { caption }) });
-      const make = field => {
-        const f = new FormData();
-        f.append('chat_id', chat_id);
-        f.append(field, new Blob([img.bytes], { type: img.type }), 'image.' + (img.type.split('/')[1] || 'jpg'));
-        if (caption) f.append('caption', caption.slice(0, 1000));
-        return f;
-      };
-      const r = await api('sendPhoto', make('photo'));
-      return r.ok ? r : api('sendDocument', make('document')); // too big for a photo: send as a file
+      let r;
+      if (img.url) r = await api('sendPhoto', { chat_id, photo: img.url, ...(caption && { caption }) });
+      else {
+        const make = field => {
+          const f = new FormData();
+          f.append('chat_id', chat_id);
+          f.append(field, new Blob([img.bytes], { type: img.type }), 'image.' + (img.type.split('/')[1] || 'jpg'));
+          if (caption) f.append('caption', caption.slice(0, 1000));
+          return f;
+        };
+        r = await api('sendPhoto', make('photo'));
+        if (!r.ok) r = await api('sendDocument', make('document')); // too big for a photo: send as a file
+      }
+      if (r.ok && r.result?.message_id) await onSent?.(r.result.message_id);
+      return r;
     },
 
     async download(fileId) {

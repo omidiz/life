@@ -1,4 +1,4 @@
-/* Life — big boards for the parts of your life.
+/* os — big boards for the parts of your life.
    Data lives in localStorage and optionally syncs through a secret GitHub Gist.
    Every record carries an `updated` timestamp; deletes are kept as tombstones,
    so changes from several devices merge instead of overwriting each other. */
@@ -21,7 +21,7 @@
   const defaults = () => ({
     boards: DEFAULT_BOARDS.map((name, i) => ({ id: boardIdFor(name), name, order: i, color: colorFor(i), updated: 0 })),
     pages: [{ id: 'p-home', name: 'Home', order: 0, updated: 0 }], // fixed id so fresh devices agree
-    tasks: [],   // items: {id, boardId, type: task|note|heading|bullet, title, due, done, doneOn, pos, created, updated, deleted?}
+    tasks: [],   // items: {id, boardId, type: task|note|heading|bullet|number, title, due, done, doneOn, pos, created, updated, deleted?}
     theme: null, // per device, never synced
   });
 
@@ -289,7 +289,7 @@
   };
   // Turn a sheet into a card on a board page: the first heading becomes the title, lists stay lists,
   // tasks stay tasks, everything else becomes notes. The sheet itself stays where it is.
-  const BOARD_TYPE = { h1: 'heading', h2: 'heading', ul: 'bullet', ol: 'bullet', todo: 'task', quote: 'note', p: 'note' };
+  const BOARD_TYPE = { h1: 'heading', h2: 'heading', ul: 'bullet', ol: 'number', todo: 'task', quote: 'note', p: 'note' };
   const sendSheet = (sheetId, targetPage) => {
     const b = $(`#sheets [data-sheet="${CSS.escape(sheetId)}"] .doc-body`); if (b) saveDoc(true, b);
     const blocks = parseDoc(sheetData(sheetId).doc).filter(x => x.t !== 'sketch');
@@ -649,11 +649,12 @@
     note:    { label: 'Text',    ph: 'Write…   [] task   - list   # heading' },
     task:    { label: 'Task',    ph: 'Task' },
     bullet:  { label: 'List',    ph: 'List item' },
+    number:  { label: '1. List', ph: 'List item' },
     heading: { label: 'Heading', ph: 'Heading' },
   };
   const typeOf = t => (TYPES[t.type] ? t.type : 'task');
   // Typing one of these at the start of a line turns it into that kind of item.
-  const SHORTCUTS = [[/^#{1,3}\s/, 'heading'], [/^[-*•]\s/, 'bullet'], [/^\[\s?\]\s/, 'task']];
+  const SHORTCUTS = [[/^#{1,3}\s/, 'heading'], [/^[-*•]\s/, 'bullet'], [/^[1۱][.)]\s/, 'number'], [/^\[\s?\]\s/, 'task']];
 
   let renamingPage = null, addMenu = false;
   // Each page gets its own colour, in tab order, so neighbouring tabs always differ.
@@ -669,7 +670,7 @@
       '<button class="page-tab add" data-act="addmenu" title="New page" aria-label="New page">+</button>' +
       (addMenu ? `<span class="add-menu"><button class="page-tab" data-act="addpage" data-kind="boards">▦ Boards</button>
         <button class="page-tab" data-act="addpage" data-kind="doc">✎ Notepad</button></span>` : '');
-    document.title = (pages().find(p => p.id === cur)?.name || 'Life') + ' · Life';
+    document.title = (pages().find(p => p.id === cur)?.name || 'os') + ' · os';
   };
   const goTo = id => {
     page = id; localStorage.setItem('life-page', id);
@@ -685,15 +686,13 @@
     if (isDocPage()) { $('#summary').textContent = wordCount(); return; }
     const ids = new Set(boards().map(b => b.id));
     const tasks = live(S.tasks).filter(t => isTask(t) && t.title && ids.has(t.boardId));
-    const open = tasks.filter(t => !t.done).length;
-    const doneToday = tasks.filter(t => t.doneOn === dayKey()).length;
     const late = tasks.filter(t => dueInfo(t)?.level === 'late').length;
     const today = tasks.filter(t => !t.done && t.due && t.due.slice(0, 10) === dayKey() && dueInfo(t).level !== 'late').length;
-    $('#summary').textContent = `${open} to do` + (today ? ` · ${today} due today` : '') + (late ? ` · ${late} late` : '') +
-      (doneToday ? ` · ${doneToday} done today` : '');
+    // only warnings here (nothing when all is fine), so the top bar stays clean
+    $('#summary').textContent = [today && `${today} due today`, late && `${late} late`].filter(Boolean).join(' · ');
   };
 
-  const itemHTML = t => {
+  const itemHTML = (t, num) => {
     const type = typeOf(t);
     const handle = `<span class="handle" title="Drag to move" aria-hidden="true">${gripIcon}</span>`;
     const text = `<div class="text" contenteditable="true" dir="auto" spellcheck="false" data-ph="${esc(TYPES[type].ph)}">${t.rich ? showRich(t.rich) : esc(t.title)}</div>`;
@@ -704,7 +703,7 @@
     const del = `<button class="del" data-act="del" aria-label="Delete">×</button>`;
     if (type !== 'task') return `
       <li class="item ${type}" dir="${dirOf(t.title)}" data-id="${t.id}"${t.size && t.size !== 1 ? ` style="--z:${t.size}"` : ''}>
-        ${handle}${type === 'bullet' ? '<span class="dot">•</span>' : ''}
+        ${handle}${type === 'bullet' ? '<span class="dot">•</span>' : type === 'number' ? `<span class="dot num">${num || 1}.</span>` : ''}
         <div class="body">${text}${typebar}</div>${del}
       </li>`;
     const info = dueInfo(t);
@@ -726,6 +725,8 @@
       </li>`;
   };
 
+  // number the lines of a numbered list: 1, 2, 3… restarting after any other kind of line
+  const numbered = items => { let n = 0; return items.map(t => [t, typeOf(t) === 'number' ? ++n : (n = 0)]); };
   const boardHTML = (b, i, n) => {
     const items = visibleItems(b.id);
     const open = items.filter(t => isTask(t) && !t.done && t.title).length;
@@ -738,7 +739,7 @@
             <button class="swatch-btn" data-act="colors" title="Colour" aria-label="Change colour"></button>
             ${!canvasMode() && i > 0 ? '<button class="mini" data-act="left" title="Move earlier" aria-label="Move earlier">←</button>' : ''}
             ${!canvasMode() && i < n - 1 ? '<button class="mini" data-act="right" title="Move later" aria-label="Move later">→</button>' : ''}
-            ${pages().length > 1 ? '<button class="mini" data-act="moving" title="Move to another page" aria-label="Move to another page">⇢</button>' : ''}
+            <button class="mini" data-act="moving" title="Move or copy to a page" aria-label="Move or copy to a page">⇢</button>
             <button class="mini" data-act="delboard" title="Delete board" aria-label="Delete board">×</button>
           </div>
           <span class="board-count">${open || ''}</span>
@@ -746,16 +747,23 @@
         ${picking === b.id ? `<div class="swatches">${COLORS.map(c => `
           <button class="swatch ${c === b.color ? 'on' : ''}" data-act="color" data-color="${c}" style="background: var(--c-${c})" title="${c}" aria-label="${c}"></button>`).join('')}
         </div>` : ''}
-        ${moving === b.id ? `<div class="move-to"><span class="muted">Move to</span>${pages().filter(p => p.id !== b.pageId).map(p =>
-          `<button class="pill ghost" data-act="moveto" data-page="${esc(p.id)}">${esc(p.name)}</button>`).join('')}</div>` : ''}
+        ${moving === b.id ? `${pages().length > 1 ? `<div class="move-to"><span class="muted">Move to</span>${pages().filter(p => p.id !== b.pageId).map(p =>
+          `<button class="pill ghost" data-act="moveto" data-page="${esc(p.id)}" dir="auto">${esc(p.name)}</button>`).join('')}</div>` : ''}
+          <div class="move-to"><span class="muted">Copy to</span>${pages().map(p =>
+          `<button class="pill ghost" data-act="copyto" data-page="${esc(p.id)}" dir="auto">${p.id === b.pageId ? 'This page' : esc(p.name)}</button>`).join('')}</div>` : ''}
         <ul class="items">
-          ${items.map(itemHTML).join('') || '<li class="empty">Tap anywhere to write.</li>'}
+          ${numbered(items).map(([t, n]) => itemHTML(t, n)).join('') || '<li class="empty">Tap anywhere to write.</li>'}
         </ul>
         <div class="write-here" aria-hidden="true"></div>
       </section>`;
   };
 
   let moving = null;
+  // open the page a board is on and briefly highlight it (after moving or copying it)
+  const showBoard = board => {
+    goTo(board.pageId);
+    setTimeout(() => { const el = $(`[data-board="${CSS.escape(board.id)}"]`); if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('just-sent'); setTimeout(() => el.classList.remove('just-sent'), 1600); } }, 60);
+  };
   let renderPending = false, picking = null, dueEditing = null, quiet = false;
   const editing = () => document.activeElement?.matches?.('#boards [contenteditable], #boards .board-name, #boards .due-edit input, #sheets .doc-body') || !!drag || !!cardDrag || !!pen || !!inking || !!sizing;
   const isDocPage = () => S.pages.find(p => p.id === currentPage())?.kind === 'doc';
@@ -926,7 +934,7 @@
     const last = visibleItems(boardId).at(-1);
     if (last && !last.title) return focusItem(last.id);
     const prevType = last ? typeOf(last) : 'note';
-    const item = newItem(boardId, prevType === 'task' || prevType === 'bullet' ? prevType : 'note', nextPos(boardId));
+    const item = newItem(boardId, ['task', 'bullet', 'number'].includes(prevType) ? prevType : 'note', nextPos(boardId));
     store(); redrawAndFocus(item.id);
   };
   const setType = (t, type) => { t.type = type; t.updated = now(); store(); redrawAndFocus(t.id); };
@@ -942,6 +950,12 @@
     if (keep && p && name && name !== p.name) { p.name = name; p.updated = now(); save(); }
     renderNav();
   };
+  // with many pages the list scrolls sideways; let the normal mouse wheel scroll it
+  $('#pages').addEventListener('wheel', e => {
+    const el = e.currentTarget;
+    if (el.scrollWidth <= el.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    el.scrollLeft += e.deltaY; e.preventDefault();
+  }, { passive: false });
   $('#pages').addEventListener('click', e => {
     const el = e.target.closest('[data-act], .page-tab'); if (!el || el.matches('input')) return;
     if (el.dataset.act === 'addmenu') { addMenu = !addMenu; return renderNav(); }
@@ -1016,6 +1030,18 @@
       const id = boardOf(b).id; moving = moving === id ? null : id; return render();
     } else if (act === 'moveto') {
       const board = boardOf(b); board.pageId = b.dataset.page; board.x = board.y = null; board.updated = now(); moving = null;
+      save(); return showBoard(board);
+    } else if (act === 'copyto') {
+      const src = boardOf(b), target = b.dataset.page, same = target === src.pageId;
+      const onPage = allBoards().filter(x => x.pageId === target);
+      const copy = { ...src, id: 'b-' + uid(), pageId: target, name: same ? (src.name + ' (copy)').slice(0, 40) : src.name,
+        order: (onPage.at(-1)?.order ?? -1) + 1, updated: now() };
+      if (same && src.x != null) Object.assign(copy, { x: src.x + 32, y: src.y + 32, z: topZ() });
+      else copy.x = copy.y = null;
+      S.boards.push(copy);
+      live(S.tasks).filter(t => t.boardId === src.id).forEach((t, i) =>
+        S.tasks.push({ ...t, id: uid(), boardId: copy.id, created: now() + i, updated: now() }));
+      moving = null; save(); return showBoard(copy);
     } else if (act === 'delboard') {
       const board = boardOf(b);
       const count = live(S.tasks).filter(t => t.boardId === board.id && t.title && !(isTask(t) && t.done)).length;
@@ -1225,7 +1251,7 @@
       if (list.length < 100) break;
     }
     const g = await gh('/gists', { method: 'POST', body: JSON.stringify({
-      description: 'Life dashboard data (synced automatically, keep secret)', public: false,
+      description: 'os dashboard data (synced automatically, keep secret)', public: false,
       files: { [FILE]: { content: payload() } },
     }) });
     sync.gistId = g.id; storeSync();
@@ -1275,7 +1301,7 @@
       box.innerHTML = `
         <p class="muted">Keep every device up to date. Your data is stored in a secret gist on your GitHub account.</p>
         <ol>
-          <li><a href="https://github.com/settings/tokens/new?scopes=gist&description=Life%20dashboard%20sync" target="_blank" rel="noopener">Create a GitHub token</a> with only the <b>gist</b> box ticked and a long expiration.</li>
+          <li><a href="https://github.com/settings/tokens/new?scopes=gist&description=os%20dashboard%20sync" target="_blank" rel="noopener">Create a GitHub token</a> with only the <b>gist</b> box ticked and a long expiration.</li>
           <li>Paste it below. Do the same on every device (the same token is fine).</li>
         </ol>
         <form class="row" id="syncForm">
@@ -1367,7 +1393,13 @@
   if ('serviceWorker' in navigator) {
     const hadController = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
-      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+      // Look for a new version whenever the app comes back into view, regains focus or
+      // reconnects, and every minute while it stays open, so pushed changes show up fast.
+      const check = () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); };
+      document.addEventListener('visibilitychange', check);
+      window.addEventListener('focus', check);
+      window.addEventListener('online', check);
+      setInterval(check, 60 * 1000);
     }).catch(() => {});
     let reloaded = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
