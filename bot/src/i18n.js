@@ -14,7 +14,7 @@ const T = {
     memoryEmpty: 'هنوز چیزی درباره‌ات به خاطر نسپرده‌ام. هر وقت بخواهی بگو «یادت باشه که …».',
     memoryTitle: '🧠 <b>چیزهایی که درباره‌ات می‌دانم</b>', memoryClear: '🗑 پاک کردن همه', memoryCleared: 'همه پاک شد.',
     modelTitle: m => `🤖 مدل فعلی: <b>${m}</b>\n\nبرای عوض کردن، یکی را انتخاب کن (گفتگو ادامه پیدا می‌کند).\nردیف آخر سرعت است: ⚡ سریع زودتر شروع به نوشتن می‌کند، 🧠 عمیق بیشتر فکر می‌کند.`,
-    fast: '⚡ سریع', balanced: '⚖️ متعادل', deep: '🧠 عمیق', thinkSet: l => `از حالا: ${l}`,
+    clearProblems: '🗑 پاک کردن خطاهای ثبت‌شده', fast: '⚡ سریع', balanced: '⚖️ متعادل', deep: '🧠 عمیق', thinkSet: l => `از حالا: ${l}`,
     modelSet: m => `🤖 از حالا با <b>${m}</b> حرف می‌زنی.`, modelOnlyOne: m => `🤖 مدل فعلی: <b>${m}</b>\n\nسرعت را از دکمه‌های پایین انتخاب کن. فقط یک مدل تعریف شده. برای اضافه کردن مدل‌های بیشتر، AI_MODELS یا AI2_MODEL را در Cloudflare بگذار (راهنما: README). یا بنویس:\n/model اسم-مدل`,
     noAi: 'برای گفتگو، کلید هوش مصنوعی (AI_API_KEY) را در Cloudflare بگذار. فعلاً پیامت به Inbox داشبورد رفت:',
     help: `<b>Life</b> — دستیار هوشمند شخصی تو.
@@ -44,7 +44,7 @@ const T = {
     memoryEmpty: 'I haven’t saved anything about you yet. Say “remember that …” any time.',
     memoryTitle: '🧠 <b>What I know about you</b>', memoryClear: '🗑 Forget everything', memoryCleared: 'All forgotten.',
     modelTitle: m => `🤖 Current model: <b>${m}</b>\n\nPick one to switch (the conversation carries on).\nThe last row is speed: ⚡ fast starts writing sooner, 🧠 deep thinks longer.`,
-    fast: '⚡ Fast', balanced: '⚖️ Balanced', deep: '🧠 Deep', thinkSet: l => `From now on: ${l}`,
+    clearProblems: '🗑 Clear recorded problems', fast: '⚡ Fast', balanced: '⚖️ Balanced', deep: '🧠 Deep', thinkSet: l => `From now on: ${l}`,
     modelSet: m => `🤖 From now on you’re talking to <b>${m}</b>.`, modelOnlyOne: m => `🤖 Current model: <b>${m}</b>\n\nPick a speed below. Only one model is set up. To add more, set AI_MODELS or AI2_MODEL in Cloudflare (see README), or write:\n/model model-name`,
     noAi: 'To chat, add the AI key (AI_API_KEY) in Cloudflare. For now your message went to the dashboard Inbox:',
     help: `<b>Life</b> — your personal smart assistant.

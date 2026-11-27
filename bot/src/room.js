@@ -124,7 +124,10 @@ export class ChatRoom {
         const s = (await openDashboard(c)).s, v = cmd === 'today' ? todayView(c, s) : listView(c, s);
         return tg.send(v.msg, doneButtons(v.tasks));
       }
-      case 'status': return tg.send(await this.status(c));
+      case 'status': {
+        const errors = (await this.state.get('errors')) || [];
+        return tg.send(await this.status(c), errors.length ? { reply_markup: { inline_keyboard: [[{ text: w.clearProblems, callback_data: 'errors:clear' }]] } } : {});
+      }
       case 'model': {
         if (arg) { await this.state.put('model', { model: arg, url: c.ai.url }); return tg.send(w.modelSet(esc(arg))); }
         return tg.send(c.models.length < 2 ? w.modelOnlyOne(esc(c.ai.model)) : w.modelTitle(esc(c.ai.model)), { reply_markup: { inline_keyboard: [
@@ -155,7 +158,7 @@ export class ChatRoom {
     let dash;
     try { const s = (await openDashboard(c)).s; dash = ok(true, `Dashboard: ${live(s.pages).length} pages, ${live(s.boards).length} boards, ${openTasks(s).length} open tasks`); }
     catch (e) { dash = ok(false, `Dashboard: ${esc(e.message)}`); }
-    const mem = (await this.state.get('memory')) || [], errors = (await this.state.get('errors')) || []; // problems older than a day are not shown
+    const mem = (await this.state.get('memory')) || [], errors = (await this.state.get('errors')) || []; // only problems from the last 3 hours are shown
     return [
       '<b>Status</b>', ok(true, 'Telegram'), esc(await checkAI(c)), dash,
       ok(true, `Web search: ${esc(searchService(c))}`),
@@ -163,13 +166,14 @@ export class ChatRoom {
       ok(true, `Voice: ${c.stt ? esc(c.stt.model) : 'straight to the model'}`),
       ok(!!c.repo, c.repo ? `GitHub: can edit ${esc(c.repo.name)}` : 'GitHub: not connected (GITHUB_REPO_TOKEN)'),
       ok(true, `Memory: ${mem.length} facts`),
-      errors.length && Date.now() - errors.at(-1).at < 864e5 ? `\nLast problem (${new Date(errors.at(-1).at).toISOString().slice(0, 16).replace('T', ' ')} UTC): <code>${esc(errors.at(-1).message.slice(0, 400))}</code>` : '',
+      errors.length && Date.now() - errors.at(-1).at < 3 * 3600e3 ? `\nLast problem (${new Date(errors.at(-1).at).toISOString().slice(0, 16).replace('T', ' ')} UTC): <code>${esc(errors.at(-1).message.slice(0, 400))}</code>` : '',
     ].join('\n');
   }
 
   /* ---------- buttons ---------- */
   async button(c, tg, q) {
     const [kind, act, id] = (q.data || '').split(':');
+    if (kind === 'errors') { await this.state.put('errors', []); await tg.answerButton(q.id, '✓'); if (q.message) await tg.buttons(q.message.message_id, []); return; }
     if (kind === 'mem') { await this.state.put('memory', []); await tg.answerButton(q.id); if (q.message) await tg.edit(q.message.message_id, words(c).memoryCleared); return; }
     if (kind === 'dev') return this.devButton(c, tg, q, act, id);
     if (kind === 'think') {

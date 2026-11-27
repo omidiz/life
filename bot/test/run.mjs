@@ -238,6 +238,16 @@ await press('think:high');
 mark(); await say({ text: '/status' });
 check('/status measures the time to the first word', /first word after/.test(lastText()), lastText());
 
+// clearing recorded problems
+await storage.put('errors', [{ at: Date.now(), where: 'x', message: 'boom' }]);
+mark(); await say({ text: '/status' });
+check('/status shows a recent problem with a clear button', /boom/.test(lastText()) && sent.at(-1).reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data === 'errors:clear');
+await press('errors:clear');
+check('…and the button clears them', !((await storage.get('errors')) || []).length);
+await storage.put('errors', [{ at: Date.now() - 5 * 3600e3, where: 'x', message: 'old one' }]);
+mark(); await say({ text: '/status' });
+check('/status hides problems older than 3 hours', !/old one/.test(lastText()));
+
 // /clean deletes the bot's recent messages
 mark(); await say({ text: '/clean' });
 check('/clean deletes the bot\'s recent messages', sent.some(s => s.m === 'deleteMessages' && s.message_ids.length >= 3) && /🧹/.test(lastText()));
