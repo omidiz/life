@@ -294,9 +294,26 @@ await deliver({ text: 'ولش کن، اضافه نکن' });
 await settle();
 check('live: if it had already done it, it knows and undoes it', gist.tasks.length === before + 1 && gist.tasks.at(-1).deleted === true && lastText().includes('پاکش کردم'), JSON.stringify(gist.tasks.at(-1)));
 
-// /clean deletes the bot's recent messages
+// deleting chat messages
 mark(); await say({ text: '/clean' });
-check('/clean deletes the bot\'s recent messages', sent.some(s => s.m === 'deleteMessages' && s.message_ids.length >= 3) && /🧹/.test(lastText()));
+const cleanAsk = sent.find(s => s.reply_markup?.inline_keyboard?.[0]?.some(b => b.callback_data === 'clean:all'));
+check('/clean asks: only the bot\'s messages, or everything', !!cleanAsk && cleanAsk.reply_markup.inline_keyboard[0].length === 2);
+check('/clean removes its own command message', sent.some(s => s.m === 'deleteMessages'));
+const logBefore = (await storage.get('sent')) || [];
+mark(); await press('clean:bot');
+const delBot = sent.find(s => s.m === 'deleteMessages')?.message_ids || [];
+check('🤖 deletes only the bot\'s messages', delBot.length > 1 && delBot.every(id => (logBefore.find(x => x.id === id)?.who || 'bot') === 'bot' || id === 1), JSON.stringify(delBot.slice(0, 10)));
+for (let i = 0; i < 4; i++) { ai.push({ text: 'پیام ' + i }); await say({ text: 'سلام ' + i }); }
+const userIds = ((await storage.get('sent')) || []).filter(x => x.who === 'user').map(x => x.id);
+mark(); ai.push({ tools: [['delete_messages', { which: 'last', count: 3 }]] }, { text: 'پاک شد.' });
+await say({ text: 'سه پیام آخر رو پاک کن' });
+const del3 = sent.find(s => s.m === 'deleteMessages')?.message_ids || [];
+check('"delete the last 3 messages": 3 messages plus the request itself', del3.length === 4, JSON.stringify(del3));
+mark(); ai.push({ tools: [['delete_messages', { which: 'replied' }]] }, { text: 'پاک شد.' });
+await say({ text: 'اینو پاک کن', reply_to_message: { message_id: 4242, text: 'old' } });
+const delR = sent.find(s => s.m === 'deleteMessages')?.message_ids || [];
+check('reply + "delete this": that message (and the request)', delR.includes(4242) && delR.length === 2, JSON.stringify(delR));
+check('the user\'s own messages are tracked so they can be deleted too', userIds.length >= 4);
 
 // someone else
 mark();

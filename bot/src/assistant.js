@@ -6,6 +6,8 @@ import { generalTools } from './tools/general.js';
 import { dashboardTools } from './tools/dashboard.js';
 import { codeTools, proposalView } from './tools/code.js';
 import { searchTools } from './tools/search.js';
+import { chatTools } from './tools/chat.js';
+import { remove } from './chatlog.js';
 import { now, weekday, persianDate } from './time.js';
 import { esc } from './telegram.js';
 
@@ -55,7 +57,7 @@ const CODE = `
 Your own code — you can improve yourself:
 - The GitHub repository holds you in bot/: src/worker.js (web entry), src/room.js (message queue, commands, buttons,
   timer), src/assistant.js (you: these instructions and a conversation turn), src/ai.js (the AI service, streaming,
-  pictures, voice), src/tools/*.js (your tools: general, search, dashboard, code), src/planner.js (reminders, briefs, task lists), src/dashboard.js
+  pictures, voice), src/tools/*.js (your tools: general, search, chat, dashboard, code), src/chatlog.js (chat messages), src/planner.js (reminders, briefs, task lists), src/dashboard.js
   (dashboard data), src/telegram.js, src/format.js, src/i18n.js (the bot's fixed texts), src/config.js (settings),
   wrangler.toml, README.md (the Farsi guide). The dashboard web app is at the top level (index.html, app.js, style.css).
 - When the user asks to change how you or the dashboard work, or something is broken: look (repo_list, repo_read,
@@ -161,8 +163,8 @@ export async function converse(c, tg, state, msgs, { stop, earlier = [] } = {}) 
 
   // Tools get the dashboard only if they need it (loaded once per turn).
   let dash = null;
-  const ctx = { c, state, out: {}, dashboard: () => (dash ||= openDashboard(c)) };
-  const tools = [...generalTools(ctx), ...searchTools(ctx), ...(c.gist.token ? dashboardTools(ctx) : []), ...(c.repo ? codeTools(ctx) : [])];
+  const ctx = { c, state, out: {}, msgs, dashboard: () => (dash ||= openDashboard(c)), deleteMessages: ids => remove(tg, state, ids) };
+  const tools = [...generalTools(ctx), ...searchTools(ctx), ...chatTools(ctx), ...(c.gist.token ? dashboardTools(ctx) : []), ...(c.repo ? codeTools(ctx) : [])];
 
   const past = await history(state);
   const messages = [

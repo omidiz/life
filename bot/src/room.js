@@ -13,6 +13,7 @@ import { openDashboard, live, openTasks, inbox, addItem } from './dashboard.js';
 import { todayView, listView, doneButtons, planTick, taskButton } from './planner.js';
 import { proposalView, applyProposal, undoCommit, buildResult } from './tools/code.js';
 import { searchService } from './tools/search.js';
+import { record, pick, remove } from './chatlog.js';
 
 const COMMANDS = new Set(['start', 'help', 'new', 'clean', 'img', 'image', 'memory', 'today', 'list', 'status', 'model']);
 // Invisible direction marks (often copied along with Farsi text) must not hide a command.
@@ -40,6 +41,7 @@ export class ChatRoom {
     const u = await req.json(), key = 'u:' + String(u.update_id).padStart(15, '0');
     if (((await store.get('last')) ?? -1) >= u.update_id || (await store.get(key))) return new Response('seen'); // Telegram re-sent it
     await store.put(key, u);
+    if (u.message?.message_id) await record(this.state, u.message.message_id, 'user', (u.message.date || 0) * 1000 || Date.now());
     this.lastArrival = Date.now();
     if (isChat(u) && this.current) this.current.abort(); // a new message: stop the answer in progress and read everything together
     if (!this.working && !(await store.getAlarm())) await store.setAlarm(Date.now());
@@ -126,24 +128,13 @@ export class ChatRoom {
   }
 
   // Remember recent bot message IDs so /clean can delete them (Telegram allows up to 48 hours).
-  async trackSent(id) {
-    if (!id) return;
-    const cutoff = Date.now() - 47.5 * 3600e3;
-    const list = ((await this.state.get('sent')) || []).filter(x => x.at > cutoff);
-    if (!list.some(x => x.id === id)) list.push({ id, at: Date.now() });
-    await this.state.put('sent', list.slice(-500));
-  }
+  trackSent(id) { return record(this.state, id, 'bot'); }
 
-  async cleanChat(c, tg) {
-    const w = words(c), cutoff = Date.now() - 47.5 * 3600e3;
-    const ids = [...new Set(((await this.state.get('sent')) || []).filter(x => x.at > cutoff).map(x => x.id))];
-    let n = 0;
-    for (let i = 0; i < ids.length; i += 100) {
-      const chunk = ids.slice(i, i + 100);
-      if ((await tg.delMany(chunk)).ok) n += chunk.length;
-    }
-    await this.state.put('sent', []);
-    return tg.send(n ? w.cleaned(n) : w.cleanEmpty);
+  // /clean: delete the bot's messages, or the whole chat, from the last 48 hours.
+  async cleanChat(c, tg, m) {
+    const w = words(c);
+    await remove(tg, this.state, [m.message_id]); // the /clean message itself
+    return tg.send(w.cleanAsk, { reply_markup: { inline_keyboard: [[{ text: w.cleanBot, callback_data: 'clean:bot' }, { text: w.cleanAll, callback_data: 'clean:all' }]] } });
   }
 
   // When a new version changes the command menu, update it in Telegram (no need to open /setup again).
@@ -169,7 +160,7 @@ export class ChatRoom {
     switch (cmd) {
       case 'start': case 'help': return tg.send(w.help);
       case 'new': await this.state.put('chat', []); return tg.send(w.newChat);
-      case 'clean': return this.cleanChat(c, tg);
+      case 'clean': return this.cleanChat(c, tg, m);
       case 'img': case 'image': {
         if (!arg) return tg.send(w.imgHow);
         const stop = tg.busy('upload_photo');
@@ -224,6 +215,16 @@ export class ChatRoom {
   /* ---------- buttons ---------- */
   async button(c, tg, q) {
     const [kind, act, id] = (q.data || '').split(':');
+    if (kind === 'clean') {
+      await tg.answerButton(q.id, '🧹');
+      const ids = await pick(this.state, { who: act === 'bot' ? 'bot' : 'all' });
+      const n = await remove(tg, this.state, ids.concat(q.message ? [q.message.message_id] : []));
+      const note = await tg.send(n > 1 ? words(c).cleaned(n - 1) : words(c).cleanEmpty);
+      // the note goes away by itself after a few seconds, leaving the chat clean
+      await new Promise(r => setTimeout(r, 4000));
+      if (note?.result?.message_id) await remove(tg, this.state, [note.result.message_id]);
+      return;
+    }
     if (kind === 'errors') { await this.state.put('errors', []); await tg.answerButton(q.id, '✓'); if (q.message) await tg.buttons(q.message.message_id, []); return; }
     if (kind === 'mem') { await this.state.put('memory', []); await tg.answerButton(q.id); if (q.message) await tg.edit(q.message.message_id, words(c).memoryCleared); return; }
     if (kind === 'dev') return this.devButton(c, tg, q, act, id);
